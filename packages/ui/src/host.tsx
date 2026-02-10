@@ -18,6 +18,9 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import type { FrameState } from "./types";
 import { getTemplate } from "./templates";
 
+// Side-effect import: registers the "explainer" template on module load.
+import "./templates/ExplainerTemplate";
+
 // ---------------------------------------------------------------------------
 // Global type augmentation
 // ---------------------------------------------------------------------------

@@ -31,3 +31,6 @@ export {
 } from "./templates";
 
 export type { TemplateComponent, TemplateProps } from "./templates";
+
+// Template implementations
+export { ExplainerTemplate } from "./templates/ExplainerTemplate";

@@ -17,3 +17,6 @@ export {
 } from "./registry";
 
 export type { TemplateComponent, TemplateProps } from "./registry";
+
+// Template implementations
+export { ExplainerTemplate } from "./ExplainerTemplate";
