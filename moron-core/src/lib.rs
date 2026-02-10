@@ -17,6 +17,7 @@ pub use moron_techniques::{Ease, Technique};
 pub use moron_themes::Theme;
 pub use moron_voice::Voice;
 pub use renderer::{render, RenderConfig, RenderError, RenderProgress, RenderResult};
+pub use ffmpeg::{detect_ffmpeg, encode as encode_video, EncodeConfig, FfmpegError};
 pub use timeline::{Segment, Timeline, TimelineBuilder};
 
 /// Prelude module: import everything a scene author needs in one line.
@@ -31,5 +32,6 @@ pub mod prelude {
     pub use crate::facade::{Direction, Element, M, Scene};
     pub use crate::frame::{compute_frame_state, ElementKind, ElementState, FrameState, ThemeState};
     pub use crate::renderer::{render, RenderConfig, RenderError, RenderProgress, RenderResult};
+    pub use crate::ffmpeg::{detect_ffmpeg, encode as encode_video, EncodeConfig, FfmpegError};
     pub use crate::timeline::{Segment, Timeline, TimelineBuilder};
 }
