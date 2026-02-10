@@ -1,0 +1,9 @@
+[package]
+name = "moron-techniques"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true

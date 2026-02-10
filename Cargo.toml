@@ -1,0 +1,42 @@
+[workspace]
+members = [
+    "moron-core",
+    "moron-techniques",
+    "moron-voice",
+    "moron-themes",
+    "moron-macros",
+    "moron-cli",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+# Internal crates
+moron-core = { path = "moron-core" }
+moron-techniques = { path = "moron-techniques" }
+moron-voice = { path = "moron-voice" }
+moron-themes = { path = "moron-themes" }
+moron-macros = { path = "moron-macros" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Heavy dependencies — uncomment when integration code is ready:
+# bevy = "0.18"
+# wgpu = "28"
+# vello = "0.6"
+# chromiumoxide = "0.7"

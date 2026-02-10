@@ -1,0 +1,21 @@
+[package]
+name = "moron-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+moron-techniques = { workspace = true }
+moron-voice = { workspace = true }
+moron-themes = { workspace = true }
+
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+
+# Heavy dependencies — uncomment when integration code is ready:
+# bevy = { workspace = true }
+# wgpu = { workspace = true }
+# vello = { workspace = true }
+# chromiumoxide = { workspace = true }

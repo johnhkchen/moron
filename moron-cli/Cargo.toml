@@ -1,0 +1,15 @@
+[package]
+name = "moron-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "moron"
+path = "src/main.rs"
+
+[dependencies]
+moron-core = { workspace = true }
+
+clap.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
