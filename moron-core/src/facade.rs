@@ -48,7 +48,41 @@ pub(crate) struct ElementRecord {
     pub items: Vec<String>,
     /// Timeline position (in seconds) when this element was created.
     pub created_at: f64,
+    /// Number of timeline segments that existed when this element was created.
+    /// Used to recompute `created_at` after narration durations are resolved.
+    pub segments_at_creation: usize,
 }
+
+// ---------------------------------------------------------------------------
+// ResolveDurationError
+// ---------------------------------------------------------------------------
+
+/// Error returned when narration duration resolution fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolveDurationError {
+    /// The number of provided durations does not match the number of narration segments.
+    LengthMismatch {
+        /// Number of narration segments in the timeline.
+        expected: usize,
+        /// Number of durations provided by the caller.
+        provided: usize,
+    },
+}
+
+impl std::fmt::Display for ResolveDurationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LengthMismatch { expected, provided } => {
+                write!(
+                    f,
+                    "narration duration count mismatch: expected {expected}, got {provided}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ResolveDurationError {}
 
 // ---------------------------------------------------------------------------
 // Scene trait
@@ -220,6 +254,52 @@ impl M {
         &self.elements
     }
 
+    // -- Duration resolution -----------------------------------------------
+
+    /// Return the number of narration segments in the timeline.
+    ///
+    /// This is the expected length of the `durations` slice passed to
+    /// [`resolve_narration_durations`](Self::resolve_narration_durations).
+    pub fn narration_count(&self) -> usize {
+        self.timeline.narration_indices().len()
+    }
+
+    /// Replace WPM-estimated narration durations with actual TTS durations.
+    ///
+    /// `durations` must contain exactly one entry per narration segment, in
+    /// timeline order. After updating segment durations, all element
+    /// `created_at` timestamps are recomputed to reflect the new timeline.
+    ///
+    /// If this method is never called, the WPM estimates remain — existing
+    /// behavior is fully preserved.
+    pub fn resolve_narration_durations(
+        &mut self,
+        durations: &[f64],
+    ) -> Result<(), ResolveDurationError> {
+        let indices = self.timeline.narration_indices();
+        if durations.len() != indices.len() {
+            return Err(ResolveDurationError::LengthMismatch {
+                expected: indices.len(),
+                provided: durations.len(),
+            });
+        }
+
+        // Update narration segment durations.
+        for (&idx, &dur) in indices.iter().zip(durations.iter()) {
+            self.timeline.update_segment_duration(idx, dur);
+        }
+
+        // Recompute element created_at timestamps.
+        for rec in &mut self.elements {
+            rec.created_at = self.timeline.segments()[..rec.segments_at_creation]
+                .iter()
+                .map(|s| s.duration())
+                .sum();
+        }
+
+        Ok(())
+    }
+
     // -- Internal helpers --------------------------------------------------
 
     /// Allocate the next `Element` handle and record its metadata.
@@ -233,6 +313,7 @@ impl M {
         self.next_element_id += 1;
 
         let created_at = self.timeline.total_duration();
+        let segments_at_creation = self.timeline.segments().len();
 
         self.elements.push(ElementRecord {
             id,
@@ -240,6 +321,7 @@ impl M {
             content,
             items,
             created_at,
+            segments_at_creation,
         });
 
         Element(id)
@@ -393,5 +475,130 @@ mod tests {
         assert_eq!(m.timeline().segments().len(), 5);
         let expected = 0.8 + 0.3 + 0.5 + 0.8 + 1.0;
         assert!((m.timeline().total_duration() - expected).abs() < f64::EPSILON);
+    }
+
+    // -- Duration resolution tests -----------------------------------------
+
+    #[test]
+    fn segments_at_creation_tracked() {
+        let mut m = M::new();
+        m.title("A");                       // 0 segments exist
+        m.narrate("first");                 // adds segment 0
+        m.show("B");                        // 1 segment exists
+        m.narrate("second");                // adds segment 1
+        m.section("C");                     // 2 segments exist
+
+        assert_eq!(m.elements()[0].segments_at_creation, 0); // "A"
+        assert_eq!(m.elements()[1].segments_at_creation, 1); // "B"
+        assert_eq!(m.elements()[2].segments_at_creation, 2); // "C"
+    }
+
+    #[test]
+    fn narration_count() {
+        let mut m = M::new();
+        assert_eq!(m.narration_count(), 0);
+
+        m.narrate("one");
+        assert_eq!(m.narration_count(), 1);
+
+        m.beat();
+        m.narrate("two");
+        assert_eq!(m.narration_count(), 2);
+    }
+
+    #[test]
+    fn resolve_narration_durations() {
+        let mut m = M::new();
+        // "hello" = 1 word -> 1*60/150 = 0.4s
+        m.title("A");                       // created_at = 0.0, segments_at = 0
+        m.narrate("hello");                 // segment 0: WPM est = 0.4
+        m.show("B");                        // created_at = 0.4, segments_at = 1
+        m.narrate("hello");                 // segment 1: WPM est = 0.4
+        m.section("D");                     // created_at = 0.8, segments_at = 2
+
+        // Verify WPM estimates
+        assert!((m.elements()[0].created_at - 0.0).abs() < f64::EPSILON);
+        assert!((m.elements()[1].created_at - 0.4).abs() < f64::EPSILON);
+        assert!((m.elements()[2].created_at - 0.8).abs() < f64::EPSILON);
+        assert!((m.timeline().total_duration() - 0.8).abs() < f64::EPSILON);
+
+        // Resolve with actual TTS durations
+        m.resolve_narration_durations(&[1.0, 2.0]).unwrap();
+
+        // After resolution: segment 0 = 1.0, segment 1 = 2.0
+        assert!((m.timeline().total_duration() - 3.0).abs() < f64::EPSILON);
+        assert!((m.elements()[0].created_at - 0.0).abs() < f64::EPSILON); // before all segments
+        assert!((m.elements()[1].created_at - 1.0).abs() < f64::EPSILON); // after segment 0
+        assert!((m.elements()[2].created_at - 3.0).abs() < f64::EPSILON); // after segments 0+1
+    }
+
+    #[test]
+    fn resolve_narration_durations_length_mismatch() {
+        let mut m = M::new();
+        m.narrate("A");
+        m.narrate("B");
+
+        let err = m.resolve_narration_durations(&[1.0, 2.0, 3.0]);
+        assert_eq!(
+            err,
+            Err(ResolveDurationError::LengthMismatch {
+                expected: 2,
+                provided: 3,
+            })
+        );
+
+        // Also test with too few
+        let err = m.resolve_narration_durations(&[1.0]);
+        assert_eq!(
+            err,
+            Err(ResolveDurationError::LengthMismatch {
+                expected: 2,
+                provided: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn resolve_preserves_non_narration_timing() {
+        let mut m = M::new();
+        m.narrate("word");                  // segment 0: WPM = 0.4
+        m.wait(0.5);                        // segment 1: silence 0.5
+        m.narrate("word");                  // segment 2: WPM = 0.4
+        m.title("end");                     // created_at = 1.3, segments_at = 3
+
+        m.resolve_narration_durations(&[1.0, 2.0]).unwrap();
+
+        // Silence should be untouched
+        assert!((m.timeline().segments()[1].duration() - 0.5).abs() < f64::EPSILON);
+        // Total = 1.0 + 0.5 + 2.0 = 3.5
+        assert!((m.timeline().total_duration() - 3.5).abs() < f64::EPSILON);
+        // Element after all 3 segments: 1.0 + 0.5 + 2.0 = 3.5
+        assert!((m.elements()[0].created_at - 3.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn resolve_duration_error_display() {
+        let err = ResolveDurationError::LengthMismatch {
+            expected: 3,
+            provided: 1,
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("3"));
+        assert!(msg.contains("1"));
+        assert!(msg.contains("mismatch"));
+    }
+
+    #[test]
+    fn resolve_with_zero_narrations_succeeds() {
+        let mut m = M::new();
+        m.wait(1.0);
+        m.title("A");
+
+        // Empty slice matches zero narrations
+        m.resolve_narration_durations(&[]).unwrap();
+
+        // Nothing changed
+        assert!((m.timeline().total_duration() - 1.0).abs() < f64::EPSILON);
+        assert!((m.elements()[0].created_at - 1.0).abs() < f64::EPSILON);
     }
 }

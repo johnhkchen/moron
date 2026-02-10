@@ -103,6 +103,37 @@ impl Timeline {
         frame.min(total - 1)
     }
 
+    /// Update the duration of the segment at the given index.
+    ///
+    /// Returns `true` if the index was valid and the duration was updated,
+    /// `false` if the index is out of bounds.
+    pub fn update_segment_duration(&mut self, index: usize, duration: f64) -> bool {
+        match self.segments.get_mut(index) {
+            Some(seg) => {
+                match seg {
+                    Segment::Narration { duration: d, .. }
+                    | Segment::Animation { duration: d, .. }
+                    | Segment::Silence { duration: d, .. }
+                    | Segment::Clip { duration: d, .. } => *d = duration,
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Return the indices of all `Narration` segments, in order.
+    pub fn narration_indices(&self) -> Vec<usize> {
+        self.segments
+            .iter()
+            .enumerate()
+            .filter_map(|(i, seg)| match seg {
+                Segment::Narration { .. } => Some(i),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Find all segments that overlap the time range `[start, end)`.
     ///
     /// Returns `(segment_start_time, &Segment)` pairs for every segment
@@ -362,5 +393,72 @@ mod tests {
         // 0.1s at 30fps = 3.0 frames -> ceil -> 3
         let tl = TimelineBuilder::new().fps(30).silence(0.1).build();
         assert_eq!(tl.total_frames(), 3);
+    }
+
+    #[test]
+    fn update_segment_duration() {
+        let mut tl = Timeline::new(30);
+        tl.add_segment(Segment::Narration {
+            text: "Hi".into(),
+            duration: 1.0,
+        });
+        tl.add_segment(Segment::Silence { duration: 0.5 });
+        tl.add_segment(Segment::Narration {
+            text: "Bye".into(),
+            duration: 1.0,
+        });
+
+        // Total starts at 2.5
+        assert!((tl.total_duration() - 2.5).abs() < f64::EPSILON);
+
+        // Update middle segment (silence) from 0.5 to 1.5
+        assert!(tl.update_segment_duration(1, 1.5));
+        assert!((tl.total_duration() - 3.5).abs() < f64::EPSILON);
+
+        // Update first narration from 1.0 to 2.0
+        assert!(tl.update_segment_duration(0, 2.0));
+        assert!((tl.total_duration() - 4.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn update_segment_duration_out_of_bounds() {
+        let mut tl = Timeline::new(30);
+        tl.add_segment(Segment::Silence { duration: 1.0 });
+
+        assert!(!tl.update_segment_duration(5, 2.0));
+        // Timeline unchanged
+        assert!((tl.total_duration() - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn narration_indices_mixed() {
+        let mut tl = Timeline::new(30);
+        tl.add_segment(Segment::Narration {
+            text: "A".into(),
+            duration: 1.0,
+        }); // index 0
+        tl.add_segment(Segment::Silence { duration: 0.5 }); // index 1
+        tl.add_segment(Segment::Narration {
+            text: "B".into(),
+            duration: 1.0,
+        }); // index 2
+        tl.add_segment(Segment::Animation {
+            name: "FadeIn".into(),
+            duration: 0.5,
+        }); // index 3
+
+        assert_eq!(tl.narration_indices(), vec![0, 2]);
+    }
+
+    #[test]
+    fn narration_indices_empty() {
+        let mut tl = Timeline::new(30);
+        tl.add_segment(Segment::Silence { duration: 1.0 });
+        tl.add_segment(Segment::Animation {
+            name: "FadeIn".into(),
+            duration: 0.5,
+        });
+
+        assert!(tl.narration_indices().is_empty());
     }
 }

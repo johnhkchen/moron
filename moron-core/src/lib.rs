@@ -13,7 +13,7 @@ pub mod build;
 pub mod demo;
 
 // Re-export key types at crate root for convenience.
-pub use facade::{Direction, Element, M, Scene, BEAT_DURATION, BREATH_DURATION};
+pub use facade::{Direction, Element, M, ResolveDurationError, Scene, BEAT_DURATION, BREATH_DURATION};
 pub use frame::{compute_frame_state, ElementKind, ElementState, FrameState, ThemeState};
 pub use moron_techniques::{Ease, Technique};
 pub use moron_themes::Theme;
@@ -33,7 +33,7 @@ pub mod prelude {
     pub use moron_techniques::{Ease, Technique, TechniqueExt};
     pub use moron_themes::Theme;
     pub use moron_voice::Voice;
-    pub use crate::facade::{Direction, Element, M, Scene};
+    pub use crate::facade::{Direction, Element, M, ResolveDurationError, Scene};
     pub use crate::frame::{compute_frame_state, ElementKind, ElementState, FrameState, ThemeState};
     pub use crate::renderer::{render, RenderConfig, RenderError, RenderProgress, RenderResult};
     pub use crate::ffmpeg::{assemble_audio_track, detect_ffmpeg, encode as encode_video, mux_audio, EncodeConfig, FfmpegError};
