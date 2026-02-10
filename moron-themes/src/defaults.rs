@@ -119,3 +119,43 @@ impl Default for Theme {
         }
     }
 }
+
+impl Theme {
+    /// Construct the built-in "moron-light" theme.
+    ///
+    /// Light backgrounds, dark foreground text, adjusted accent colors.
+    /// Typography, spacing, and timing tokens are identical to the dark theme.
+    /// Shadow opacity is reduced for use on light surfaces.
+    ///
+    /// Values here mirror `packages/themes/src/light.css`.
+    pub fn light() -> Self {
+        Self {
+            name: "moron-light".into(),
+            colors: ThemeColors {
+                bg_primary: "#ffffff".into(),
+                bg_secondary: "#f8fafc".into(),
+                bg_tertiary: "#e2e8f0".into(),
+
+                fg_primary: "#0f172a".into(),
+                fg_secondary: "#334155".into(),
+                fg_muted: "#64748b".into(),
+
+                accent: "#2563eb".into(),
+                accent_hover: "#3b82f6".into(),
+                accent_subtle: "rgba(37, 99, 235, 0.10)".into(),
+
+                success: "#16a34a".into(),
+                warning: "#ca8a04".into(),
+                error: "#dc2626".into(),
+            },
+            typography: ThemeTypography::default(),
+            spacing: ThemeSpacing::default(),
+            timing: ThemeTiming::default(),
+            shadows: ThemeShadows {
+                shadow_sm: "0 1px 2px rgba(0, 0, 0, 0.05)".into(),
+                shadow_md: "0 4px 6px rgba(0, 0, 0, 0.07)".into(),
+                shadow_lg: "0 10px 15px rgba(0, 0, 0, 0.10)".into(),
+            },
+        }
+    }
+}

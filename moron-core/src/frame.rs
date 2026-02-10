@@ -422,4 +422,47 @@ mod tests {
         let visible: Vec<_> = fs.elements.iter().filter(|e| e.visible).collect();
         assert_eq!(visible.len(), 3);
     }
+
+    #[test]
+    fn two_themes_produce_different_frame_state() {
+        use moron_themes::Theme;
+
+        // Dark theme (default)
+        let m_dark = M::new();
+        let fs_dark = compute_frame_state(&m_dark, 0.0);
+
+        // Light theme
+        let mut m_light = M::new();
+        m_light.theme(Theme::light());
+        let fs_light = compute_frame_state(&m_light, 0.0);
+
+        // Theme names must differ.
+        assert_eq!(fs_dark.theme.name, "moron-dark");
+        assert_eq!(fs_light.theme.name, "moron-light");
+        assert_ne!(fs_dark.theme.name, fs_light.theme.name);
+
+        // Both must have all 56 CSS properties.
+        assert_eq!(fs_dark.theme.css_properties.len(), 56);
+        assert_eq!(fs_light.theme.css_properties.len(), 56);
+
+        // At least the background and foreground colors must differ.
+        assert_ne!(
+            fs_dark.theme.css_properties.get("--moron-bg-primary"),
+            fs_light.theme.css_properties.get("--moron-bg-primary"),
+            "bg-primary must differ between dark and light themes"
+        );
+        assert_ne!(
+            fs_dark.theme.css_properties.get("--moron-fg-primary"),
+            fs_light.theme.css_properties.get("--moron-fg-primary"),
+            "fg-primary must differ between dark and light themes"
+        );
+
+        // The full ThemeState structs must differ.
+        assert_ne!(fs_dark.theme, fs_light.theme);
+
+        // JSON output must differ.
+        let json_dark = serde_json::to_string(&fs_dark.theme).unwrap();
+        let json_light = serde_json::to_string(&fs_light.theme).unwrap();
+        assert_ne!(json_dark, json_light, "Theme JSON must differ between dark and light");
+    }
 }

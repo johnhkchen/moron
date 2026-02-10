@@ -98,4 +98,66 @@ mod tests {
         assert_eq!(value["timing"]["ease_spring"], "cubic-bezier(0.34, 1.56, 0.64, 1)");
         assert_eq!(value["shadows"]["shadow_lg"], "0 10px 15px rgba(0, 0, 0, 0.4)");
     }
+
+    // -- Light theme tests -------------------------------------------------
+
+    #[test]
+    fn light_theme_has_correct_name() {
+        let theme = Theme::light();
+        assert_eq!(theme.name, "moron-light");
+    }
+
+    #[test]
+    fn light_theme_has_non_empty_values() {
+        let theme = Theme::light();
+        assert!(!theme.name.is_empty());
+        assert!(!theme.colors.bg_primary.is_empty());
+        assert!(!theme.colors.accent.is_empty());
+        assert!(!theme.typography.font_sans.is_empty());
+        assert!(!theme.typography.text_base.is_empty());
+        assert!(!theme.spacing.space_4.is_empty());
+        assert!(!theme.timing.duration_normal.is_empty());
+        assert!(!theme.shadows.shadow_md.is_empty());
+    }
+
+    #[test]
+    fn light_theme_differs_from_default() {
+        let dark = Theme::default();
+        let light = Theme::light();
+
+        assert_ne!(dark.name, light.name);
+        assert_ne!(dark.colors.bg_primary, light.colors.bg_primary);
+        assert_ne!(dark.colors.fg_primary, light.colors.fg_primary);
+        assert_ne!(dark.colors.accent, light.colors.accent);
+        assert_ne!(dark.shadows.shadow_sm, light.shadows.shadow_sm);
+    }
+
+    #[test]
+    fn light_theme_to_css_properties_count() {
+        let theme = Theme::light();
+        let props = theme.to_css_properties();
+
+        assert_eq!(
+            props.len(),
+            56,
+            "Light theme must produce exactly 56 CSS properties, got {}",
+            props.len()
+        );
+
+        for (key, value) in &props {
+            assert!(
+                key.starts_with("--moron-"),
+                "CSS property key '{key}' does not start with --moron-"
+            );
+            assert!(!value.is_empty(), "CSS property '{key}' has empty value");
+        }
+    }
+
+    #[test]
+    fn light_theme_serde_round_trip() {
+        let theme = Theme::light();
+        let json = serde_json::to_string_pretty(&theme).expect("serialize to JSON");
+        let deserialized: Theme = serde_json::from_str(&json).expect("deserialize from JSON");
+        assert_eq!(theme, deserialized);
+    }
 }

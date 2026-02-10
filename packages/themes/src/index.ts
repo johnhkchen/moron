@@ -22,6 +22,10 @@ export const themes: Record<string, MoronTheme> = {
     name: "Default",
     stylesheet: new URL("./default.css", import.meta.url).href,
   },
+  light: {
+    name: "Light",
+    stylesheet: new URL("./light.css", import.meta.url).href,
+  },
 };
 
 export type ThemeName = keyof typeof themes;
