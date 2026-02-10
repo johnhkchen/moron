@@ -4,21 +4,8 @@
 //! machinery (Bevy ECS, renderer, timeline, FFmpeg, TTS) behind a clean,
 //! sequential API. Scenes implement the `Scene` trait and receive `&mut M`.
 
-// ---------------------------------------------------------------------------
-// Placeholder traits/structs for cross-crate types
-// ---------------------------------------------------------------------------
-
-/// Placeholder trait for composable animation techniques.
-// TODO: Replace with types from moron-techniques in T-002-05
-pub trait Technique {}
-
-/// Placeholder struct for theme configuration.
-// TODO: Replace with types from moron-themes in T-002-05
-pub struct Theme;
-
-/// Placeholder struct for voice/TTS configuration.
-// TODO: Replace with types from moron-voice in T-002-05
-pub struct Voice;
+use moron_themes::Theme;
+use moron_voice::Voice;
 
 // ---------------------------------------------------------------------------
 // Supporting types
@@ -59,14 +46,30 @@ pub trait Scene {
 pub struct M {
     /// Monotonically increasing counter used to mint `Element` handles.
     next_element_id: u64,
+    /// Active theme configuration.
+    current_theme: Theme,
+    /// Active voice/TTS configuration.
+    current_voice: Voice,
 }
 
 impl M {
-    /// Create a new, empty facade instance.
+    /// Create a new facade instance with default theme and voice.
     pub fn new() -> Self {
         Self {
             next_element_id: 0,
+            current_theme: Theme::default(),
+            current_voice: Voice::kokoro(),
         }
+    }
+
+    /// Get the current theme.
+    pub fn current_theme(&self) -> &Theme {
+        &self.current_theme
+    }
+
+    /// Get the current voice configuration.
+    pub fn current_voice(&self) -> &Voice {
+        &self.current_voice
     }
 
     // -- Content -----------------------------------------------------------
@@ -123,20 +126,20 @@ impl M {
     // -- Techniques --------------------------------------------------------
 
     /// Execute a composable animation technique.
-    pub fn play(&mut self, _technique: impl Technique) {
+    pub fn play(&mut self, _technique: impl moron_techniques::Technique) {
         todo!()
     }
 
     // -- Configuration -----------------------------------------------------
 
     /// Set the active theme.
-    pub fn theme(&mut self, _theme: Theme) {
-        todo!()
+    pub fn theme(&mut self, theme: Theme) {
+        self.current_theme = theme;
     }
 
     /// Set the active TTS voice.
-    pub fn voice(&mut self, _voice: Voice) {
-        todo!()
+    pub fn voice(&mut self, voice: Voice) {
+        self.current_voice = voice;
     }
 
     // -- Internal helpers --------------------------------------------------
@@ -211,5 +214,44 @@ mod tests {
     fn default_m() {
         let m = M::default();
         assert_eq!(m.next_element_id, 0);
+        assert_eq!(m.current_theme().name, "moron-dark");
+        assert!(matches!(
+            m.current_voice().backend_type,
+            moron_voice::VoiceBackendType::Kokoro
+        ));
+    }
+
+    #[test]
+    fn theme_and_voice_setters() {
+        let mut m = M::new();
+
+        // Change theme
+        let mut custom_theme = Theme::default();
+        custom_theme.name = "custom".to_string();
+        m.theme(custom_theme);
+        assert_eq!(m.current_theme().name, "custom");
+
+        // Change voice
+        let piper = Voice::piper();
+        m.voice(piper);
+        assert!(matches!(
+            m.current_voice().backend_type,
+            moron_voice::VoiceBackendType::Piper
+        ));
+    }
+
+    #[test]
+    fn play_accepts_real_techniques() {
+        // Compile-time check: M.play() accepts concrete technique types.
+        fn _assert_compiles(m: &mut M) {
+            use moron_techniques::{FadeIn, FadeUp, Slide, Scale, Stagger, CountUp, TechniqueExt, Ease};
+            m.play(FadeIn::default());
+            m.play(FadeUp::default());
+            m.play(Slide::default());
+            m.play(Scale::default());
+            m.play(CountUp::default());
+            m.play(Stagger::new(FadeUp::default()));
+            m.play(FadeUp::default().with_ease(Ease::OutBack));
+        }
     }
 }
