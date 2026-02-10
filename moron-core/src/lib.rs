@@ -10,7 +10,7 @@ pub mod facade;
 pub mod camera;
 
 // Re-export key types at crate root for convenience.
-pub use facade::{Direction, Element, M, Scene};
+pub use facade::{Direction, Element, M, Scene, BEAT_DURATION, BREATH_DURATION};
 pub use moron_techniques::{Ease, Technique};
 pub use moron_themes::Theme;
 pub use moron_voice::Voice;
