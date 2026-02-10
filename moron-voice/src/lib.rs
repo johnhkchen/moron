@@ -11,4 +11,6 @@ pub mod piper;
 pub use audio::{AudioClip, DEFAULT_SAMPLE_RATE};
 pub use backend::{Voice, VoiceBackend, VoiceBackendType};
 pub use kokoro::KokoroBackend;
+#[cfg(feature = "kokoro")]
+pub use kokoro::{KokoroConfig, KokoroError, KokoroVoice, KOKORO_SAMPLE_RATE};
 pub use piper::PiperBackend;

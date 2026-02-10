@@ -3,8 +3,13 @@ name = "moron-voice"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["kokoro"]
+kokoro = ["dep:kokoro-tts"]
+
 [dependencies]
 serde.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
+kokoro-tts = { version = "0.3", optional = true }
