@@ -14,6 +14,7 @@ pub use facade::{Direction, Element, M, Scene};
 pub use moron_techniques::{Ease, Technique};
 pub use moron_themes::Theme;
 pub use moron_voice::Voice;
+pub use timeline::{Segment, Timeline, TimelineBuilder};
 
 /// Prelude module: import everything a scene author needs in one line.
 ///
@@ -25,4 +26,5 @@ pub mod prelude {
     pub use moron_themes::Theme;
     pub use moron_voice::Voice;
     pub use crate::facade::{Direction, Element, M, Scene};
+    pub use crate::timeline::{Segment, Timeline, TimelineBuilder};
 }
