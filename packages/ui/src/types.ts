@@ -101,4 +101,13 @@ export interface FrameState {
   activeNarration: string | null;
   /** Current theme as CSS custom properties. */
   theme: ThemeState;
+  /**
+   * Template name to use for rendering this frame.
+   * Maps to a registered template component via the template registry.
+   * Falls back to "default" (MoronFrame) if undefined or not found.
+   *
+   * Optional: Rust side does not send this field yet. When added to the
+   * Rust FrameState struct, use `#[serde(skip_serializing_if = "Option::is_none")]`.
+   */
+  template?: string;
 }

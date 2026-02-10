@@ -23,5 +23,11 @@ export type {
   ThemeState,
 } from "./types";
 
-// Templates (empty during scaffold phase)
-// Re-exports will be added here as templates are implemented.
+// Template system
+export {
+  registerTemplate,
+  getTemplate,
+  listTemplates,
+} from "./templates";
+
+export type { TemplateComponent, TemplateProps } from "./templates";
