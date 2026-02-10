@@ -3,9 +3,9 @@
 **Motion graphics, Obviously in Rust, Offline Natively**
 
 Technical Specification & Maintenance Plan\
-v1.0 --- February 9, 2026
+v1.1 --- February 9, 2026
 
-3-Year Build Plan | 12-Quarter Maintenance Cadence
+Sprint-Based Build Plan | Quarterly Maintenance Cadence
 
 ## Target Hardware
 
@@ -223,42 +223,15 @@ Techniques discover elements by convention. No explicit wiring. Swap the theme f
 
 ---
 
-## 7. Build Roadmap --- 12 Quarters
+## 7. Build Roadmap
 
-Year 1 builds the foundation. Year 2 polishes and extends. Year 3 stabilizes for long-term maintenance.
-
-### 7.1 Year 1: Foundation (Q1--Q4 2026)
-
-| Quarter | Milestone                      | Deliverable                                                                                                                                                  |
-| ------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Q1 2026 | Scaffold & proof of concept    | Cargo workspace, Bevy headless rendering, Chromium bridge, single React frame to PNG. Prove the pipeline end to end.                                         |
-| Q2 2026 | Timeline & frame sequencing    | M facade, `m.play()`, blocking animation model, 10 core techniques, FFmpeg frame-to-video pipeline. First `moron build scene.rs` to `.mp4`.                 |
-| Q3 2026 | Voiceover integration          | Kokoro TTS backend, `m.narrate()`, audio-synced timeline, `m.beat()`/`m.breath()`, audio muxing. First video with synchronized voiceover.                   |
-| Q4 2026 | Theme system & templates       | @moron/ui with 10 polished templates, Tailwind theme contract, 20 techniques, convention-based binding. First "professional-looking" output.                 |
-
-### 7.2 Year 2: Polish & Extend (Q5--Q8 / 2027)
-
-| Quarter | Milestone                        | Deliverable                                                                                                                    |
-| ------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Q5 2027 | Data visualization               | Recharts/D3 integration, `m.metric()`, `m.compare()`, animated charts. Data-driven explainer videos.                           |
-| Q6 2027 | Clip compositing & stock         | Video clip overlay, `m.clip()`, `m.stock()` with AI generation hooks, B-roll layering beneath React frames.                    |
-| Q7 2027 | Pre-recorded voice & alignment   | Forced alignment engine, `Voice::file()` mode, human voiceover replacement with automatic visual re-timing.                    |
-| Q8 2027 | 30 techniques, 20 templates     | Full technique library, domain extension crate pattern (moron-kinetic-type, moron-data-viz). Gallery/documentation site.        |
-
-### 7.3 Year 3: Stabilize & Maintain (Q9--Q12 / 2028)
-
-| Quarter  | Milestone                      | Deliverable                                                                                                                                             |
-| -------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Q9 2028  | API freeze & proc macros       | Stable public API. Proc macro sugar layer (`#[scene]`, `reveal!()`, `stagger!()`). LLM prompt engineering for scene generation.                         |
-| Q10 2028 | 4K & performance               | 4K rendering pipeline, parallel frame capture, VideoToolbox HW encoding, performance profiling & optimization.                                          |
-| Q11 2028 | Cross-platform testing         | Validate on M5 Pro/Max/Ultra, Intel Macs (graceful degradation), Linux (CI). Headless CI pipeline for regression tests.                                 |
-| Q12 2028 | 1.0 release                    | Stable 1.0.0 on crates.io. Complete documentation. Example library of 10+ full videos. moron-central gallery live.                                      |
+See [ROADMAP.md](ROADMAP.md) for the sprint-based milestone plan. Work is organized into sprints (stories), not calendar quarters. Each sprint ships a meaningful capability with no artificial time gates.
 
 ---
 
-## 8. Quarterly Maintenance Protocol
+## 8. Maintenance Protocol
 
-Each quarter follows a fixed maintenance ritual. Time budget: one weekend (2 days) per quarter for dependency maintenance; ongoing creative time for technique acquisition.
+Time budget: one weekend (2 days) per quarter for dependency maintenance; ongoing creative time for technique acquisition.
 
 ### 8.1 Dependency Update Cadence
 
@@ -284,7 +257,7 @@ Bevy releases breaking changes every ~3 months. This is the highest-maintenance 
 
 ### 8.3 Technique Acquisition
 
-Ongoing creative work, not tied to maintenance cadence. Watch professional videos (Kurzgesagt, Vox, corporate explainers), extract techniques, implement as 20--50 line Rust functions. Target: 1--2 new techniques per month during Year 1, then as-needed.
+Ongoing creative work, not tied to maintenance cadence. Watch professional videos (Kurzgesagt, Vox, corporate explainers), extract techniques, implement as 20--50 line Rust functions. Target: 1--2 new techniques per month initially, then as-needed.
 
 ### 8.4 Risk Register
 

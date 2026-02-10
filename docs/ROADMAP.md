@@ -1,138 +1,120 @@
 # Moron Roadmap
 
-> Build roadmap for the Moron motion graphics engine, spanning 12 quarters (2026--2028).
+> Sprint-based milestones for the Moron motion graphics engine.
 
-Year 1 builds the foundation. Year 2 polishes and extends. Year 3 stabilizes for long-term maintenance.
+Work is organized into sprints (stories), not calendar quarters. Each sprint ships a meaningful capability. No artificial time gates — when a sprint is done, the next one starts.
 
-**Current status:** Q1 2026 -- IN PROGRESS (Scaffold & proof of concept)
+**Current status:** Sprint 3 next (S-004: Frame Rendering Pipeline)
 
 ---
 
-## Year 1: Foundation (Q1--Q4 2026)
+## Completed Sprints
 
-### Q1 2026 -- Scaffold & Proof of Concept
+### Sprint 1: Core Type System (S-002) ✓
 
-Set up the project skeleton and prove the rendering pipeline end to end.
+Defined the foundational Rust types across all crates.
 
-- Cargo workspace structure
-- Bevy headless rendering
-- Chromium bridge via CDP
-- Single React frame to PNG output
-- End-to-end pipeline validation
+- Scene trait and M facade with method signatures
+- Technique trait with easing curves and composability
+- Voice/TTS backend trait with audio clip types
+- Theme struct with CSS property contract
+- All types wired through the M facade with prelude module
 
-### Q2 2026 -- Timeline & Frame Sequencing
+### Sprint 2: Timeline & Animation (S-003) ✓
 
-Implement the core animation model and video output pipeline.
+Implemented the timeline and core animation techniques.
 
-- `M` facade and `m.play()` API
-- Blocking animation model
-- 10 core animation techniques
-- FFmpeg frame-to-video pipeline
-- First `moron build scene.rs` producing `.mp4`
+- Timeline with ordered segments (Narration, Animation, Silence, Clip)
+- TimelineBuilder fluent API, frame_at() mapping, segments_in_range()
+- 6 techniques with real interpolation: FadeIn, FadeUp, Slide, Scale, CountUp, Stagger
+- 7 easing curves: Linear, EaseIn, EaseOut, EaseInOut, OutBack, OutBounce, Spring
+- Pacing primitives: beat (0.3s), breath (0.8s), wait(d)
+- M facade recording all methods to timeline
+- 53 tests passing, clippy clean
 
-### Q3 2026 -- Voiceover Integration
+---
 
-Add text-to-speech narration with audio-synced timelines.
+## Active Sprints
 
-- Kokoro TTS backend
-- `m.narrate()` API
-- Audio-synced timeline
-- `m.beat()` / `m.breath()` timing primitives
-- Audio muxing into final video
-- First video with synchronized voiceover
+### Sprint 3: Frame Rendering Pipeline (S-004)
 
-### Q4 2026 -- Theme System & Templates
+Bridge Rust timeline state to visual output via React and headless Chromium.
 
-Deliver polished visual output through a theming and template layer.
+- Frame state serialization (timeline position → JSON props)
+- React `<MoronFrame>` base component consuming frame state
+- Headless Chromium bridge via CDP for screenshot capture
+- Frame rendering loop: iterate timeline at FPS, output numbered PNGs
 
-- `@moron/ui` package with 10 polished templates
-- Tailwind theme contract
-- 20 animation techniques
-- Convention-based data binding
+### Sprint 4: Video Output Pipeline (S-005)
+
+Turn rendered frames into a finished .mp4 video.
+
+- FFmpeg integration for H.264 encoding
+- Audio track assembly from timeline segments
+- `moron build` CLI command wiring the full pipeline
+- End-to-end validation: scene → .mp4
+
+---
+
+## Future Sprints
+
+### Sprint 5: TTS Integration
+
+Wire actual text-to-speech into the narration pipeline.
+
+- Kokoro TTS backend (kokorox crate, ONNX runtime)
+- Real audio generation from narrate() text
+- Audio-synced timeline (visual pacing driven by actual TTS durations)
+- Audio muxing with generated speech
+
+### Sprint 6: Templates & Polish
+
+Deliver polished visual output through themed React templates.
+
+- 5-10 production-ready React templates in @moron/ui
+- Tailwind theme contract in practice
+- Convention-based data binding (data-moron attributes)
 - First "professional-looking" output
 
----
+### Sprint 7: Data Visualization & Clips
 
-## Year 2: Polish & Extend (Q5--Q8 / 2027)
+Enable data-driven explainer videos and clip compositing.
 
-### Q5 2027 -- Data Visualization
-
-Enable data-driven explainer videos with animated charts.
-
-- Recharts / D3 integration
-- `m.metric()` and `m.compare()` APIs
-- Animated chart transitions
-- Data-driven explainer video workflow
-
-### Q6 2027 -- Clip Compositing & Stock
-
-Layer video clips and AI-generated stock footage beneath React frames.
-
-- Video clip overlay support
-- `m.clip()` and `m.stock()` APIs
-- AI generation hooks for stock footage
+- Recharts/D3 integration for animated charts
+- m.metric(), m.compare() with real rendering
+- Video clip overlay support (m.clip())
 - B-roll layering beneath React frames
 
-### Q7 2027 -- Pre-recorded Voice & Alignment
+### Sprint 8: Pre-recorded Voice & Alignment
 
-Support human voiceover recordings with automatic visual re-timing.
+Support human voiceover with automatic visual re-timing.
 
 - Forced alignment engine
-- `Voice::file()` mode for pre-recorded audio
-- Human voiceover replacement
-- Automatic visual re-timing to match audio
+- Voice::file() mode for pre-recorded audio
+- Automatic visual re-timing to match audio durations
 
-### Q8 2027 -- 30 Techniques, 20 Templates
+### Sprint 9: Performance & Scale
 
-Complete the technique and template libraries; establish the extension pattern.
-
-- Full library of 30 animation techniques
-- 20 production-ready templates
-- Domain extension crate pattern (`moron-kinetic-type`, `moron-data-viz`)
-- Gallery and documentation site
-
----
-
-## Year 3: Stabilize & Maintain (Q9--Q12 / 2028)
-
-### Q9 2028 -- API Freeze & Proc Macros
-
-Lock the public API surface and add ergonomic Rust sugar.
-
-- Stable public API
-- Proc macro sugar layer: `#[scene]`, `reveal!()`, `stagger!()`
-- LLM prompt engineering support for scene generation
-
-### Q10 2028 -- 4K & Performance
-
-Scale rendering to 4K and optimize throughput.
+Optimize rendering throughput and support higher resolutions.
 
 - 4K rendering pipeline
 - Parallel frame capture
 - VideoToolbox hardware encoding
-- Performance profiling and optimization
+- Performance profiling
 
-### Q11 2028 -- Cross-platform Testing
+### Sprint 10: API Stabilization & 1.0
 
-Validate across hardware targets and establish CI regression testing.
+Lock the public API and ship.
 
-- M5 Pro / Max / Ultra validation
-- Intel Mac support with graceful degradation
-- Linux CI support
-- Headless CI pipeline for regression tests
-
-### Q12 2028 -- 1.0 Release
-
-Ship the stable release with complete documentation and examples.
-
-- Stable `1.0.0` on crates.io
-- Complete documentation
-- Example library of 10+ full videos
-- `moron-central` gallery live
+- Stable public API surface
+- Proc macro sugar (#[scene], reveal!(), stagger!())
+- Cross-platform CI (Linux, Intel Mac graceful degradation)
+- Complete documentation and example library
+- 1.0.0 release
 
 ---
 
-## Quarterly Maintenance Protocol
+## Ongoing Maintenance
 
 Time budget: one weekend (2 days) per quarter for dependency maintenance.
 
