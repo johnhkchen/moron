@@ -7,6 +7,7 @@
 use moron_themes::Theme;
 use moron_voice::Voice;
 
+use crate::frame::ElementKind;
 use crate::timeline::{Segment, Timeline};
 
 /// Default duration for `m.beat()` — a short rhythmic pause.
@@ -33,6 +34,21 @@ pub enum Direction {
 /// Opaque handle to a visual element on the timeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Element(pub(crate) u64);
+
+/// Internal record of an element's metadata, used for frame state computation.
+#[derive(Debug, Clone)]
+pub(crate) struct ElementRecord {
+    /// Element identifier (matches the Element handle).
+    pub id: u64,
+    /// Structural type of this element.
+    pub kind: ElementKind,
+    /// Primary text content.
+    pub content: String,
+    /// List items (non-empty only for Steps elements).
+    pub items: Vec<String>,
+    /// Timeline position (in seconds) when this element was created.
+    pub created_at: f64,
+}
 
 // ---------------------------------------------------------------------------
 // Scene trait
@@ -63,6 +79,8 @@ pub struct M {
     current_voice: Voice,
     /// The timeline recording all segments produced during scene building.
     timeline: Timeline,
+    /// Registry of all minted elements with their metadata.
+    elements: Vec<ElementRecord>,
 }
 
 impl M {
@@ -73,6 +91,7 @@ impl M {
             current_theme: Theme::default(),
             current_voice: Voice::kokoro(),
             timeline: Timeline::default(),
+            elements: Vec::new(),
         }
     }
 
@@ -106,30 +125,48 @@ impl M {
     }
 
     /// Display text on screen in a context-aware manner.
-    pub fn show(&mut self, _text: &str) -> Element {
-        self.mint_element()
+    pub fn show(&mut self, text: &str) -> Element {
+        self.mint_element_with_meta(ElementKind::Show, text.to_string(), Vec::new())
     }
 
     // -- Structure ---------------------------------------------------------
 
     /// Display a title card.
-    pub fn title(&mut self, _text: &str) -> Element {
-        self.mint_element()
+    pub fn title(&mut self, text: &str) -> Element {
+        self.mint_element_with_meta(ElementKind::Title, text.to_string(), Vec::new())
     }
 
     /// Begin a new named section.
-    pub fn section(&mut self, _text: &str) -> Element {
-        self.mint_element()
+    pub fn section(&mut self, text: &str) -> Element {
+        self.mint_element_with_meta(ElementKind::Section, text.to_string(), Vec::new())
     }
 
     /// Display a metric with a directional indicator.
-    pub fn metric(&mut self, _label: &str, _value: &str, _direction: Direction) -> Element {
-        self.mint_element()
+    pub fn metric(&mut self, label: &str, value: &str, direction: Direction) -> Element {
+        let dir_str = match direction {
+            Direction::Up => "up",
+            Direction::Down => "down",
+            Direction::Neutral => "neutral",
+        };
+        self.mint_element_with_meta(
+            ElementKind::Metric {
+                direction: dir_str.to_string(),
+            },
+            format!("{label}: {value}"),
+            Vec::new(),
+        )
     }
 
     /// Reveal a list of items with staggered timing.
-    pub fn steps(&mut self, _items: &[&str]) -> Element {
-        self.mint_element()
+    pub fn steps(&mut self, items: &[&str]) -> Element {
+        let items_vec: Vec<String> = items.iter().map(|s| s.to_string()).collect();
+        self.mint_element_with_meta(
+            ElementKind::Steps {
+                count: items_vec.len(),
+            },
+            items.join(", "),
+            items_vec,
+        )
     }
 
     // -- Pacing ------------------------------------------------------------
@@ -176,12 +213,35 @@ impl M {
         self.current_voice = voice;
     }
 
+    // -- Accessors (crate-internal) ----------------------------------------
+
+    /// Get the element metadata records (for frame state computation).
+    pub(crate) fn elements(&self) -> &[ElementRecord] {
+        &self.elements
+    }
+
     // -- Internal helpers --------------------------------------------------
 
-    /// Allocate the next `Element` handle.
-    fn mint_element(&mut self) -> Element {
+    /// Allocate the next `Element` handle and record its metadata.
+    fn mint_element_with_meta(
+        &mut self,
+        kind: ElementKind,
+        content: String,
+        items: Vec<String>,
+    ) -> Element {
         let id = self.next_element_id;
         self.next_element_id += 1;
+
+        let created_at = self.timeline.total_duration();
+
+        self.elements.push(ElementRecord {
+            id,
+            kind,
+            content,
+            items,
+            created_at,
+        });
+
         Element(id)
     }
 }

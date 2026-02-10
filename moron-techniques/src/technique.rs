@@ -2,6 +2,8 @@
 
 use std::f64::consts::PI;
 
+use serde::{Deserialize, Serialize};
+
 // ---------------------------------------------------------------------------
 // Easing
 // ---------------------------------------------------------------------------
@@ -67,7 +69,8 @@ fn ease_out_bounce(t: f64) -> f64 {
 // ---------------------------------------------------------------------------
 
 /// The visual state produced by a technique at a given progress.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TechniqueOutput {
     /// Opacity (0.0 = transparent, 1.0 = fully opaque).
     pub opacity: f64,
