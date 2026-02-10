@@ -1,6 +1,7 @@
 //! End-to-end validation tests for the moron rendering pipeline.
 //!
-//! These tests exercise the complete pipeline: scene -> timeline -> frames -> video.
+//! These tests exercise the complete pipeline: scene -> timeline -> frames -> video,
+//! including TTS integration (narration synthesis, duration resolution, audio assembly).
 //!
 //! # Running
 //!
@@ -14,6 +15,13 @@
 //! cargo test --test e2e -- --ignored
 //! ```
 //!
+//! TTS pipeline tests (requires Kokoro model files):
+//! ```sh
+//! export KOKORO_MODEL_PATH=models/kokoro/onnx/model_quantized.onnx
+//! export KOKORO_VOICES_PATH=models/kokoro/voices.bin
+//! cargo test --test e2e -- --ignored
+//! ```
+//!
 //! All tests in this file:
 //! ```sh
 //! cargo test --test e2e -- --include-ignored
@@ -23,6 +31,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use moron_core::prelude::*;
+use moron_voice::VoiceBackend;
 
 // ---------------------------------------------------------------------------
 // Helper: minimal valid PNG bytes
@@ -620,4 +629,361 @@ fn e2e_ffmpeg_rejects_empty_frames_dir() {
 
     // Cleanup.
     let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+// ===========================================================================
+// TTS pipeline tests -- mock backend (no system dependencies)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Helper: mock TTS backend for integration tests
+// ---------------------------------------------------------------------------
+
+/// A mock TTS backend that produces deterministic non-silent audio.
+///
+/// Each word in the input text produces `seconds_per_word` seconds of audio
+/// at a constant sample value of `signal_value`. This makes it easy to verify
+/// that assembled audio contains real TTS content (non-zero) vs silence (zero).
+struct MockTtsBackend {
+    sample_rate: u32,
+    seconds_per_word: f64,
+    signal_value: f32,
+}
+
+impl MockTtsBackend {
+    fn new() -> Self {
+        Self {
+            sample_rate: moron_voice::DEFAULT_SAMPLE_RATE,
+            seconds_per_word: 0.3,
+            signal_value: 0.42,
+        }
+    }
+}
+
+impl moron_voice::VoiceBackend for MockTtsBackend {
+    fn synthesize(&self, text: &str) -> Result<moron_voice::AudioClip, anyhow::Error> {
+        let words = text.split_whitespace().count().max(1) as f64;
+        let duration = words * self.seconds_per_word;
+        let num_samples = (duration * self.sample_rate as f64) as usize;
+        Ok(moron_voice::AudioClip {
+            data: vec![self.signal_value; num_samples],
+            duration,
+            sample_rate: self.sample_rate,
+            channels: 1,
+        })
+    }
+
+    fn name(&self) -> &str {
+        "mock-e2e"
+    }
+}
+
+#[test]
+fn e2e_mock_tts_duration_resolution() {
+    // Build the DemoScene, then manually synthesize narrations using the mock
+    // backend and resolve durations -- verifying that the timeline updates from
+    // WPM estimates to actual TTS durations.
+
+    let mut m = M::new();
+    DemoScene::build(&mut m);
+
+    // Capture WPM-estimated duration before TTS.
+    let wpm_duration = m.timeline().total_duration();
+    let narration_count = m.timeline().narration_indices().len();
+    assert!(narration_count > 0, "DemoScene must have narrations");
+
+    // Collect narration texts.
+    let narration_texts: Vec<String> = m
+        .timeline()
+        .narration_indices()
+        .iter()
+        .filter_map(|&idx| match &m.timeline().segments()[idx] {
+            Segment::Narration { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(narration_texts.len(), narration_count);
+
+    // Synthesize with mock backend.
+    let backend = MockTtsBackend::new();
+    let mut clips = Vec::new();
+    let mut durations = Vec::new();
+    for text in &narration_texts {
+        let clip = backend.synthesize(text).expect("mock synthesis failed");
+        durations.push(clip.duration());
+        clips.push(clip);
+    }
+
+    // Resolve durations.
+    m.resolve_narration_durations(&durations)
+        .expect("duration resolution failed");
+
+    let tts_duration = m.timeline().total_duration();
+
+    // The durations should differ from WPM estimates (mock uses 0.3s/word
+    // vs WPM's 60/150 = 0.4s/word), so total should change.
+    assert!(
+        (tts_duration - wpm_duration).abs() > 0.01,
+        "timeline duration should change after TTS resolution: WPM={wpm_duration}, TTS={tts_duration}"
+    );
+
+    // Verify each narration segment now has the mock TTS duration.
+    for (i, &idx) in m.timeline().narration_indices().iter().enumerate() {
+        let seg_dur = m.timeline().segments()[idx].duration();
+        assert!(
+            (seg_dur - durations[i]).abs() < 1e-10,
+            "narration segment {i} duration ({seg_dur}) should match TTS duration ({})",
+            durations[i]
+        );
+    }
+
+    // Non-narration segments should be unchanged.
+    for (i, seg) in m.timeline().segments().iter().enumerate() {
+        if !matches!(seg, Segment::Narration { .. }) {
+            let dur = seg.duration();
+            assert!(
+                dur > 0.0,
+                "non-narration segment {i} should have positive duration"
+            );
+        }
+    }
+
+    // Frame count should reflect new duration.
+    let expected_frames = (tts_duration * m.timeline().fps() as f64).ceil() as u32;
+    assert_eq!(m.timeline().total_frames(), expected_frames);
+}
+
+#[test]
+fn e2e_audio_assembly_with_tts_clips() {
+    // Build a scene with narrations, create mock TTS clips, assemble the
+    // audio track, and verify that narration positions contain non-zero
+    // samples while silence positions contain zeros.
+
+    let mut m = M::new();
+    m.narrate("Hello world");  // 2 words
+    m.wait(0.5);               // silence gap
+    m.narrate("Goodbye");      // 1 word
+
+    let backend = MockTtsBackend::new();
+    let sample_rate = backend.sample_rate;
+    let signal_value = backend.signal_value;
+
+    // Synthesize clips.
+    let narration_texts: Vec<String> = m
+        .timeline()
+        .narration_indices()
+        .iter()
+        .filter_map(|&idx| match &m.timeline().segments()[idx] {
+            Segment::Narration { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let mut clips = Vec::new();
+    let mut durations = Vec::new();
+    for text in &narration_texts {
+        let clip = backend.synthesize(text).expect("mock synthesis failed");
+        durations.push(clip.duration());
+        clips.push(clip);
+    }
+
+    // Resolve durations so timeline matches TTS output.
+    m.resolve_narration_durations(&durations)
+        .expect("duration resolution failed");
+
+    // Assemble audio track with the TTS clips.
+    let assembled = assemble_audio_track(m.timeline(), sample_rate, Some(&clips));
+
+    // Total duration should match timeline.
+    let tl_dur = m.timeline().total_duration();
+    assert!(
+        (assembled.duration() - tl_dur).abs() < 0.01,
+        "assembled duration ({}) should match timeline duration ({tl_dur})",
+        assembled.duration()
+    );
+
+    // Check narration 1: "Hello world" = 2 words * 0.3s = 0.6s.
+    let narr1_samples = (durations[0] * sample_rate as f64) as usize;
+    assert!(narr1_samples > 0);
+    // First narr1_samples should be the signal value.
+    for i in 0..narr1_samples {
+        assert!(
+            (assembled.data[i] - signal_value).abs() < f32::EPSILON,
+            "sample {i} in narration 1 should be {signal_value}, got {}",
+            assembled.data[i]
+        );
+    }
+
+    // Check silence gap: 0.5s at 48kHz.
+    let silence_start = narr1_samples;
+    let silence_samples = (0.5 * sample_rate as f64) as usize;
+    for i in 0..silence_samples {
+        let idx = silence_start + i;
+        assert!(
+            assembled.data[idx].abs() < f32::EPSILON,
+            "sample {idx} in silence gap should be 0.0, got {}",
+            assembled.data[idx]
+        );
+    }
+
+    // Check narration 2: "Goodbye" = 1 word * 0.3s.
+    let narr2_start = silence_start + silence_samples;
+    let narr2_samples = (durations[1] * sample_rate as f64) as usize;
+    for i in 0..narr2_samples {
+        let idx = narr2_start + i;
+        assert!(
+            (assembled.data[idx] - signal_value).abs() < f32::EPSILON,
+            "sample {idx} in narration 2 should be {signal_value}, got {}",
+            assembled.data[idx]
+        );
+    }
+
+    // WAV encoding should produce valid bytes.
+    let wav_bytes = assembled.to_wav_bytes();
+    assert!(wav_bytes.len() > 44, "WAV must be larger than header");
+    assert_eq!(&wav_bytes[0..4], b"RIFF");
+    assert_eq!(&wav_bytes[8..12], b"WAVE");
+
+    // PCM data should contain non-zero bytes (from TTS clips).
+    let pcm_data = &wav_bytes[44..];
+    let has_nonzero = pcm_data.iter().any(|&b| b != 0);
+    assert!(has_nonzero, "WAV PCM data should contain non-silence from TTS clips");
+}
+
+// ===========================================================================
+// Ignored TTS tests (require Kokoro model files)
+// ===========================================================================
+
+#[test]
+#[ignore = "requires Kokoro model files (set KOKORO_MODEL_PATH and KOKORO_VOICES_PATH)"]
+fn e2e_full_pipeline_with_tts() {
+    // Full TTS integration: DemoScene -> Kokoro synthesis -> duration resolution
+    // -> audio assembly -> WAV output. Optionally muxes with FFmpeg if available.
+    //
+    // Requires:
+    //   - KOKORO_MODEL_PATH env var pointing to kokoro.onnx
+    //   - KOKORO_VOICES_PATH env var pointing to voices.bin
+    //   - Optionally: FFmpeg on PATH for the final mux step
+    //
+    // Run with:
+    //   KOKORO_MODEL_PATH=... KOKORO_VOICES_PATH=... cargo test --test e2e -- --ignored
+
+    let model_path = std::env::var("KOKORO_MODEL_PATH")
+        .expect("KOKORO_MODEL_PATH must be set");
+    let voices_path = std::env::var("KOKORO_VOICES_PATH")
+        .expect("KOKORO_VOICES_PATH must be set");
+
+    // Step 1: Build the demo scene and capture WPM duration.
+    let mut m = M::new();
+    DemoScene::build(&mut m);
+
+    let wpm_duration = m.timeline().total_duration();
+    let narration_count = m.timeline().narration_indices().len();
+    assert!(narration_count > 0, "DemoScene must have narrations");
+
+    // Step 2: Create Kokoro backend and synthesize narrations.
+    let config = moron_voice::KokoroConfig::new(&model_path, &voices_path);
+    let backend = moron_voice::KokoroBackend::new(config)
+        .expect("failed to create KokoroBackend");
+
+    let narration_texts: Vec<String> = m
+        .timeline()
+        .narration_indices()
+        .iter()
+        .filter_map(|&idx| match &m.timeline().segments()[idx] {
+            Segment::Narration { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let mut clips = Vec::new();
+    let mut durations = Vec::new();
+    for text in &narration_texts {
+        let clip = backend.synthesize(text).expect("Kokoro synthesis failed");
+
+        // Verify each clip's basic properties.
+        assert!(!clip.data.is_empty(), "TTS clip must not be empty");
+        assert_eq!(clip.sample_rate, moron_voice::KOKORO_SAMPLE_RATE);
+        assert_eq!(clip.channels, 1);
+        assert!(clip.duration() > 0.0);
+
+        durations.push(clip.duration());
+        clips.push(clip);
+    }
+
+    // Step 3: Resolve narration durations.
+    m.resolve_narration_durations(&durations)
+        .expect("duration resolution failed");
+
+    let tts_duration = m.timeline().total_duration();
+
+    // Durations should differ from WPM estimates.
+    assert!(
+        (tts_duration - wpm_duration).abs() > 0.01,
+        "timeline should change after TTS: WPM={wpm_duration:.2}s, TTS={tts_duration:.2}s"
+    );
+
+    // Step 4: Assemble audio track with real TTS clips.
+    let kokoro_sr = moron_voice::KOKORO_SAMPLE_RATE;
+    let assembled = assemble_audio_track(m.timeline(), kokoro_sr, Some(&clips));
+
+    assert!(
+        (assembled.duration() - tts_duration).abs() < 0.1,
+        "assembled audio ({:.2}s) should approximate timeline ({tts_duration:.2}s)",
+        assembled.duration()
+    );
+
+    // Audio should contain non-silence (real speech).
+    let has_speech = assembled.data.iter().any(|&s| s.abs() > 0.001);
+    assert!(has_speech, "assembled audio should contain non-silent speech");
+
+    // Step 5: Encode WAV and verify.
+    let wav_bytes = assembled.to_wav_bytes();
+    assert!(wav_bytes.len() > 44, "WAV must be larger than header");
+    assert_eq!(&wav_bytes[0..4], b"RIFF");
+
+    // Step 6: Optionally mux with FFmpeg if available.
+    if detect_ffmpeg().is_ok() {
+        let temp_dir = test_temp_dir("tts-pipeline");
+        let frames_dir = temp_dir.join("frames");
+        let video_only_path = temp_dir.join("video_only.mp4");
+        let audio_path = temp_dir.join("audio.wav");
+        let output_path = temp_dir.join("output.mp4");
+
+        // Write synthetic frames matching the new timeline.
+        let total_frames = m.timeline().total_frames();
+        write_synthetic_frames(&frames_dir, total_frames);
+
+        // Encode frames to video.
+        let encode_config = EncodeConfig::new(&frames_dir, &video_only_path)
+            .fps(m.timeline().fps())
+            .resolution(8, 8);
+        encode_video(&encode_config).expect("FFmpeg encoding failed");
+
+        // Write audio WAV.
+        std::fs::write(&audio_path, &wav_bytes).expect("failed to write audio WAV");
+
+        // Mux video + audio.
+        mux_audio(&video_only_path, &audio_path, &output_path)
+            .expect("FFmpeg muxing failed");
+
+        // Validate output.
+        assert!(output_path.exists(), "final .mp4 should exist");
+        let output_size = std::fs::metadata(&output_path)
+            .expect("failed to stat output")
+            .len();
+        assert!(output_size > 0, "final .mp4 should be non-empty");
+
+        // Check for audio stream.
+        if let Some(has_audio) = ffprobe_has_audio_stream(&output_path) {
+            assert!(has_audio, "output .mp4 should contain an audio stream");
+        }
+
+        if let Some(has_video) = ffprobe_has_video_stream(&output_path) {
+            assert!(has_video, "output .mp4 should contain a video stream");
+        }
+
+        // Cleanup.
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
