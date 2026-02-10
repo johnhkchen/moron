@@ -8,3 +8,6 @@ pub mod chromium;
 pub mod ffmpeg;
 pub mod facade;
 pub mod camera;
+
+// Re-export facade types at crate root for convenience.
+pub use facade::{Direction, Element, M, Scene, Technique, Theme, Voice};
