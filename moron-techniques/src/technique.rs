@@ -21,6 +21,7 @@ pub enum Ease {
 }
 
 /// Apply an easing curve to a linear progress value `t` in `[0.0, 1.0]`.
+#[must_use]
 pub fn ease(curve: Ease, t: f64) -> f64 {
     let t = t.clamp(0.0, 1.0);
     match curve {
@@ -60,7 +61,7 @@ fn ease_out_bounce(t: f64) -> f64 {
         n1 * t * t + 0.9375
     } else {
         let t = t - 2.625 / d1;
-        n1 * t * t + 0.984375
+        n1 * t * t + 0.984_375
     }
 }
 
@@ -113,6 +114,14 @@ pub trait Technique {
 
     /// Compute the visual output at the given progress (0.0 = start, 1.0 = end).
     fn apply(&self, progress: f64) -> TechniqueOutput;
+
+    /// Compute per-item visual output for a multi-item element (e.g., Steps).
+    ///
+    /// `count` is the number of items. Default: all items get the same output
+    /// from `apply(progress)`. Stagger overrides this to produce staggered per-item state.
+    fn apply_items(&self, count: usize, progress: f64) -> Vec<TechniqueOutput> {
+        (0..count).map(|_| self.apply(progress)).collect()
+    }
 }
 
 /// Extension trait providing combinators on any [`Technique`].
@@ -148,5 +157,10 @@ impl<T: Technique> Technique for WithEase<T> {
     fn apply(&self, progress: f64) -> TechniqueOutput {
         let eased = ease(self.ease, progress);
         self.inner.apply(eased)
+    }
+
+    fn apply_items(&self, count: usize, progress: f64) -> Vec<TechniqueOutput> {
+        let eased = ease(self.ease, progress);
+        self.inner.apply_items(count, eased)
     }
 }

@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 
-import type { ElementState, FrameState } from "./types";
+import type { ElementState, FrameState, ItemState } from "./types";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -34,6 +34,25 @@ function buildTransform(el: ElementState): string {
   }
   if (el.rotation !== 0) {
     parts.push(`rotate(${el.rotation}deg)`);
+  }
+
+  return parts.length > 0 ? parts.join(" ") : "none";
+}
+
+/**
+ * Build a CSS `transform` string from an item's per-item visual state.
+ */
+function buildItemTransform(item: ItemState): string {
+  const parts: string[] = [];
+
+  if (item.translateX !== 0 || item.translateY !== 0) {
+    parts.push(`translate(${item.translateX}px, ${item.translateY}px)`);
+  }
+  if (item.scale !== 1) {
+    parts.push(`scale(${item.scale})`);
+  }
+  if (item.rotation !== 0) {
+    parts.push(`rotate(${item.rotation}deg)`);
   }
 
   return parts.length > 0 ? parts.join(" ") : "none";
@@ -144,7 +163,7 @@ function renderContent(el: ElementState): ReactNode {
       );
     }
 
-    case "steps":
+    case "steps": {
       return (
         <div
           data-moron="sequence"
@@ -155,21 +174,28 @@ function renderContent(el: ElementState): ReactNode {
             alignItems: "flex-start",
           }}
         >
-          {el.items.map((item, i) => (
-            <div
-              key={i}
-              data-moron="sequence-item"
-              data-index={i}
-              style={{
-                fontSize: "var(--moron-text-xl)",
-                lineHeight: 1.5,
-              }}
-            >
-              {item}
-            </div>
-          ))}
+          {el.items.map((item, i) => {
+            const itemTransform = buildItemTransform(item);
+            const itemStyle: CSSProperties = {
+              fontSize: "var(--moron-text-xl)",
+              lineHeight: 1.5,
+              opacity: item.opacity,
+              transform: itemTransform !== "none" ? itemTransform : undefined,
+            };
+            return (
+              <div
+                key={i}
+                data-moron="sequence-item"
+                data-index={i}
+                style={itemStyle}
+              >
+                {item.text}
+              </div>
+            );
+          })}
         </div>
       );
+    }
   }
 }
 
@@ -218,16 +244,24 @@ export function MoronFrame({
           return null;
         }
 
+        // Position element using layout_y (0=top, 0.5=center, 1=bottom).
+        // translate(-50%, -50%) centers the element on its anchor point.
+        // Animation transforms (translate, scale, rotate) compose after.
+        const animTransform = buildTransform(el);
+        const centerAndAnim = animTransform !== "none"
+          ? `translate(-50%, -50%) ${animTransform}`
+          : "translate(-50%, -50%)";
+
         const wrapperStyle: CSSProperties = {
           position: "absolute",
-          inset: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          top: `${el.layoutY * 100}%`,
+          left: "50%",
+          transform: centerAndAnim,
+          maxWidth: "80%",
           opacity: el.opacity,
-          transform: buildTransform(el),
           zIndex: index,
           pointerEvents: "none",
+          textAlign: "center",
         };
 
         return (

@@ -37,6 +37,45 @@ pub enum ElementKind {
 }
 
 // ---------------------------------------------------------------------------
+// ItemState — per-item visual snapshot (for Steps elements)
+// ---------------------------------------------------------------------------
+
+/// The visual state of a single item within a Steps element.
+///
+/// Carries per-item text alongside individual transforms, enabling Stagger
+/// animations to animate each bullet independently.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemState {
+    /// Item text content.
+    pub text: String,
+    /// Opacity (0.0 = transparent, 1.0 = fully opaque).
+    pub opacity: f64,
+    /// Horizontal translation in pixels.
+    pub translate_x: f64,
+    /// Vertical translation in pixels.
+    pub translate_y: f64,
+    /// Scale factor (1.0 = normal size).
+    pub scale: f64,
+    /// Rotation in degrees.
+    pub rotation: f64,
+}
+
+impl ItemState {
+    /// Create an ItemState with default (fully visible) transforms.
+    fn new(text: String) -> Self {
+        Self {
+            text,
+            opacity: 1.0,
+            translate_x: 0.0,
+            translate_y: 0.0,
+            scale: 1.0,
+            rotation: 0.0,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ElementState — per-element visual snapshot
 // ---------------------------------------------------------------------------
 
@@ -50,8 +89,8 @@ pub struct ElementState {
     pub kind: ElementKind,
     /// Primary text content.
     pub content: String,
-    /// List items (non-empty only for Steps elements).
-    pub items: Vec<String>,
+    /// List items with per-item visual state (non-empty only for Steps elements).
+    pub items: Vec<ItemState>,
     /// Whether this element is currently visible.
     pub visible: bool,
     /// Opacity (0.0 = transparent, 1.0 = fully opaque).
@@ -64,6 +103,9 @@ pub struct ElementState {
     pub scale: f64,
     /// Rotation in degrees.
     pub rotation: f64,
+    /// Vertical layout position: 0.0 = top of frame, 0.5 = center, 1.0 = bottom.
+    /// Computed automatically based on element kind and co-visible elements.
+    pub layout_y: f64,
 }
 
 // ---------------------------------------------------------------------------
@@ -125,27 +167,34 @@ pub fn compute_frame_state(m: &M, time: f64) -> FrameState {
     let frame = m.timeline().frame_at(clamped_time);
 
     // Build element states from M's element records.
-    let elements: Vec<ElementState> = m
+    let mut elements: Vec<ElementState> = m
         .elements()
         .iter()
         .map(|rec| {
-            let visible = rec.created_at <= clamped_time;
+            let visible = rec.created_at <= clamped_time
+                && rec.ended_at.is_none_or(|end| clamped_time < end);
             ElementState {
                 id: rec.id,
                 kind: rec.kind.clone(),
                 content: rec.content.clone(),
-                items: rec.items.clone(),
+                items: rec.items.iter().map(|t| ItemState::new(t.clone())).collect(),
                 visible,
-                // Default visual state for visible elements.
-                // Animation techniques will modify these in future tickets.
+                // Default visual state — overwritten by apply_animations() below.
                 opacity: if visible { 1.0 } else { 0.0 },
                 translate_x: 0.0,
                 translate_y: 0.0,
                 scale: if visible { 1.0 } else { 0.0 },
                 rotation: 0.0,
+                layout_y: 0.5,
             }
         })
         .collect();
+
+    // Apply animation technique outputs to elements.
+    apply_animations(m, clamped_time, &mut elements);
+
+    // Assign vertical layout positions based on visible element composition.
+    assign_layout_positions(&mut elements);
 
     // Find active narration: any Narration segment overlapping the current time.
     // Use a tiny epsilon window around the current time for point-in-time query.
@@ -171,6 +220,132 @@ pub fn compute_frame_state(m: &M, time: f64) -> FrameState {
         elements,
         active_narration,
         theme,
+    }
+}
+
+/// Apply animation technique outputs to elements based on the current time.
+///
+/// For each animation record, computes the animation's progress within its
+/// timeline segment and applies the technique's visual output to target elements.
+fn apply_animations(m: &M, time: f64, elements: &mut [ElementState]) {
+    // Build ID → index lookup for O(1) element access.
+    let id_to_index: HashMap<u64, usize> = elements
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (e.id, i))
+        .collect();
+
+    let segments = m.timeline().segments();
+
+    for record in m.animations() {
+        // Compute the animation segment's absolute time window.
+        let seg_start: f64 = segments[..record.segment_index]
+            .iter()
+            .map(|s| s.duration())
+            .sum();
+        let seg_duration = segments[record.segment_index].duration();
+        let seg_end = seg_start + seg_duration;
+
+        // Compute progress: 0.0 before start, 1.0 after end, linear during.
+        let progress = if time < seg_start {
+            0.0
+        } else if time >= seg_end || seg_duration <= 0.0 {
+            1.0
+        } else {
+            (time - seg_start) / seg_duration
+        };
+
+        // Apply to each target element (only if visible).
+        for &target_id in &record.target_ids {
+            if let Some(&idx) = id_to_index.get(&target_id)
+                && elements[idx].visible
+            {
+                let item_count = elements[idx].items.len();
+                if item_count > 0 {
+                    // Steps element: apply per-item transforms via apply_items().
+                    let outputs = record.technique.apply_items(item_count, progress);
+                    for (i, item_output) in outputs.into_iter().enumerate() {
+                        if i < elements[idx].items.len() {
+                            elements[idx].items[i].opacity = item_output.opacity;
+                            elements[idx].items[i].translate_x = item_output.translate_x;
+                            elements[idx].items[i].translate_y = item_output.translate_y;
+                            elements[idx].items[i].scale = item_output.scale;
+                            elements[idx].items[i].rotation = item_output.rotation;
+                        }
+                    }
+                    // Keep element-level transforms at defaults so the wrapper
+                    // doesn't double-apply what's already on each item.
+                } else {
+                    // Non-Steps element: apply element-level transforms.
+                    let output = record.technique.apply(progress);
+                    elements[idx].opacity = output.opacity;
+                    elements[idx].translate_x = output.translate_x;
+                    elements[idx].translate_y = output.translate_y;
+                    elements[idx].scale = output.scale;
+                    elements[idx].rotation = output.rotation;
+                }
+            }
+        }
+    }
+}
+
+/// Returns true for element kinds that act as headers (Title, Section).
+fn is_header(kind: &ElementKind) -> bool {
+    matches!(kind, ElementKind::Title | ElementKind::Section)
+}
+
+/// Assign vertical layout positions to elements based on kind and co-visibility.
+///
+/// Headers (Title, Section) sort before bodies (Show, Steps, Metric).
+/// Within each group, creation order is preserved. Positions are assigned:
+/// - 1 visible element: centered at 0.5
+/// - 2 visible elements: 0.3 and 0.65
+/// - 3+ visible elements: evenly spaced from 0.2 to 0.8
+fn assign_layout_positions(elements: &mut [ElementState]) {
+    // Collect indices of visible elements, partitioned into headers-first order.
+    let mut header_indices: Vec<usize> = Vec::new();
+    let mut body_indices: Vec<usize> = Vec::new();
+
+    for (i, el) in elements.iter().enumerate() {
+        if el.visible {
+            if is_header(&el.kind) {
+                header_indices.push(i);
+            } else {
+                body_indices.push(i);
+            }
+        }
+    }
+
+    // Merge: headers first, then bodies (preserving creation order within each group).
+    let mut sorted_indices: Vec<usize> = Vec::with_capacity(header_indices.len() + body_indices.len());
+    sorted_indices.extend(header_indices);
+    sorted_indices.extend(body_indices);
+
+    let count = sorted_indices.len();
+    if count == 0 {
+        return;
+    }
+
+    // Compute layout_y positions based on visible element count.
+    let positions: Vec<f64> = match count {
+        1 => vec![0.5],
+        2 => vec![0.3, 0.65],
+        n => {
+            // Evenly distribute from 0.2 to 0.8.
+            (0..n)
+                .map(|i| {
+                    if n == 1 {
+                        0.5
+                    } else {
+                        0.2 + (0.6 * i as f64 / (n - 1) as f64)
+                    }
+                })
+                .collect()
+        }
+    };
+
+    for (slot, &elem_idx) in sorted_indices.iter().enumerate() {
+        elements[elem_idx].layout_y = positions[slot];
     }
 }
 
@@ -344,10 +519,8 @@ mod tests {
             fs.elements[0].kind,
             ElementKind::Steps { count: 3 }
         );
-        assert_eq!(
-            fs.elements[0].items,
-            vec!["one".to_string(), "two".to_string(), "three".to_string()]
-        );
+        let item_texts: Vec<&str> = fs.elements[0].items.iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(item_texts, vec!["one", "two", "three"]);
     }
 
     #[test]
@@ -464,5 +637,371 @@ mod tests {
         let json_dark = serde_json::to_string(&fs_dark.theme).unwrap();
         let json_light = serde_json::to_string(&fs_light.theme).unwrap();
         assert_ne!(json_dark, json_light, "Theme JSON must differ between dark and light");
+    }
+
+    // -- Layout tests ------------------------------------------------------
+
+    #[test]
+    fn layout_single_element_centered() {
+        let mut m = M::new();
+        m.title("Solo Title");
+
+        let fs = compute_frame_state(&m, 0.0);
+        assert!((fs.elements[0].layout_y - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn layout_title_plus_show() {
+        let mut m = M::new();
+        m.title("Heading");
+        m.show("Body text");
+
+        let fs = compute_frame_state(&m, 0.0);
+        let title = fs.elements.iter().find(|e| e.content == "Heading").unwrap();
+        let show = fs.elements.iter().find(|e| e.content == "Body text").unwrap();
+
+        // Title (header) should be above Show (body).
+        assert!((title.layout_y - 0.3).abs() < f64::EPSILON, "title layout_y: {}", title.layout_y);
+        assert!((show.layout_y - 0.65).abs() < f64::EPSILON, "show layout_y: {}", show.layout_y);
+    }
+
+    #[test]
+    fn layout_section_plus_steps() {
+        let mut m = M::new();
+        m.section("Features");
+        m.steps(&["fast", "offline", "simple"]);
+
+        let fs = compute_frame_state(&m, 0.0);
+        let section = fs.elements.iter().find(|e| e.content == "Features").unwrap();
+        let steps = fs.elements.iter().find(|e| e.kind == ElementKind::Steps { count: 3 }).unwrap();
+
+        assert!((section.layout_y - 0.3).abs() < f64::EPSILON);
+        assert!((steps.layout_y - 0.65).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn layout_three_elements() {
+        let mut m = M::new();
+        m.section("Intro");
+        m.show("Detail");
+        m.steps(&["a", "b"]);
+
+        let fs = compute_frame_state(&m, 0.0);
+        let section = fs.elements.iter().find(|e| e.content == "Intro").unwrap();
+        let show = fs.elements.iter().find(|e| e.content == "Detail").unwrap();
+        let steps = fs.elements.iter().find(|e| e.kind == ElementKind::Steps { count: 2 }).unwrap();
+
+        // Header first, then two bodies. 3 elements: 0.2, 0.5, 0.8.
+        assert!((section.layout_y - 0.2).abs() < f64::EPSILON, "section: {}", section.layout_y);
+        assert!((show.layout_y - 0.5).abs() < f64::EPSILON, "show: {}", show.layout_y);
+        assert!((steps.layout_y - 0.8).abs() < f64::EPSILON, "steps: {}", steps.layout_y);
+    }
+
+    #[test]
+    fn layout_after_clear_recenters() {
+        let mut m = M::new();
+        m.title("Slide 1");
+        m.show("Detail");
+        m.wait(1.0);
+        m.clear();
+        m.title("Slide 2 Solo");
+
+        // At t=1.5 only "Slide 2 Solo" is visible.
+        let fs = compute_frame_state(&m, 1.5);
+        let visible: Vec<_> = fs.elements.iter().filter(|e| e.visible).collect();
+        assert_eq!(visible.len(), 1);
+        assert!((visible[0].layout_y - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn layout_hidden_elements_ignored() {
+        let mut m = M::new();
+        m.title("Early");
+        m.wait(1.0);
+        m.show("Late"); // created at t=1.0
+
+        // At t=0.5 only "Early" is visible.
+        let fs = compute_frame_state(&m, 0.5);
+        let early = fs.elements.iter().find(|e| e.content == "Early").unwrap();
+        assert!(early.visible);
+        assert!((early.layout_y - 0.5).abs() < f64::EPSILON, "solo visible should center");
+    }
+
+    #[test]
+    fn layout_two_body_elements() {
+        let mut m = M::new();
+        m.show("First");
+        m.show("Second");
+
+        let fs = compute_frame_state(&m, 0.0);
+        let first = &fs.elements[0];
+        let second = &fs.elements[1];
+
+        // Two bodies: 0.3, 0.65.
+        assert!((first.layout_y - 0.3).abs() < f64::EPSILON);
+        assert!((second.layout_y - 0.65).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn layout_y_serializes_as_camel_case() {
+        let mut m = M::new();
+        m.title("Test");
+
+        let fs = compute_frame_state(&m, 0.0);
+        let value: serde_json::Value = serde_json::to_value(&fs).unwrap();
+        let elem = &value["elements"][0];
+        assert!(elem.get("layoutY").is_some(), "layout_y should serialize as layoutY");
+    }
+
+    #[test]
+    fn layout_empty_scene() {
+        let m = M::new();
+        let fs = compute_frame_state(&m, 0.0);
+        assert!(fs.elements.is_empty());
+    }
+
+    // -- Animation execution tests -----------------------------------------
+
+    #[test]
+    fn animation_fade_in_progress() {
+        use moron_techniques::FadeIn;
+
+        let mut m = M::new();
+        m.title("Hello");                     // element 0, created at t=0
+        m.play(FadeIn { duration: 1.0 });     // animation segment [0.0, 1.0)
+
+        // At start of animation: progress=0.0, opacity=0.0
+        let fs = compute_frame_state(&m, 0.0);
+        assert!(fs.elements[0].visible);
+        assert!((fs.elements[0].opacity - 0.0).abs() < f64::EPSILON);
+
+        // At midpoint: progress=0.5, opacity=0.5
+        let fs = compute_frame_state(&m, 0.5);
+        assert!((fs.elements[0].opacity - 0.5).abs() < f64::EPSILON);
+
+        // At end of animation: progress=1.0, opacity=1.0
+        let fs = compute_frame_state(&m, 1.0);
+        assert!((fs.elements[0].opacity - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn animation_before_start_shows_initial_state() {
+        use moron_techniques::FadeIn;
+
+        let mut m = M::new();
+        m.title("Hello");
+        m.wait(1.0);                          // silence [0.0, 1.0)
+        m.play(FadeIn { duration: 0.5 });     // animation [1.0, 1.5)
+
+        // At t=0.5, animation hasn't started → apply(0.0) → opacity=0.0
+        let fs = compute_frame_state(&m, 0.5);
+        assert!(fs.elements[0].visible);
+        assert!((fs.elements[0].opacity - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn animation_after_end_shows_final_state() {
+        use moron_techniques::FadeIn;
+
+        let mut m = M::new();
+        m.title("Hello");
+        m.play(FadeIn { duration: 0.5 });     // animation [0.0, 0.5)
+        m.wait(1.0);                           // silence [0.5, 1.5)
+
+        // At t=1.0, animation completed → apply(1.0) → opacity=1.0
+        let fs = compute_frame_state(&m, 1.0);
+        assert!(fs.elements[0].visible);
+        assert!((fs.elements[0].opacity - 1.0).abs() < f64::EPSILON);
+        assert!((fs.elements[0].scale - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn no_animation_retains_defaults() {
+        let mut m = M::new();
+        m.title("Hello");
+        m.wait(1.0);
+
+        let fs = compute_frame_state(&m, 0.5);
+        assert!(fs.elements[0].visible);
+        assert!((fs.elements[0].opacity - 1.0).abs() < f64::EPSILON);
+        assert!((fs.elements[0].scale - 1.0).abs() < f64::EPSILON);
+        assert!((fs.elements[0].translate_x - 0.0).abs() < f64::EPSILON);
+        assert!((fs.elements[0].translate_y - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn animation_fade_up_produces_translation() {
+        use moron_techniques::FadeUp;
+
+        let mut m = M::new();
+        m.title("Hello");
+        m.play(FadeUp { duration: 1.0, distance: 30.0 });
+
+        // At midpoint: opacity=0.5, translate_y=15.0
+        let fs = compute_frame_state(&m, 0.5);
+        assert!((fs.elements[0].opacity - 0.5).abs() < f64::EPSILON);
+        assert!((fs.elements[0].translate_y - 15.0).abs() < f64::EPSILON);
+
+        // At end: opacity=1.0, translate_y=0.0
+        let fs = compute_frame_state(&m, 1.0);
+        assert!((fs.elements[0].opacity - 1.0).abs() < f64::EPSILON);
+        assert!((fs.elements[0].translate_y - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn animation_not_applied_to_invisible_element() {
+        use moron_techniques::FadeIn;
+
+        let mut m = M::new();
+        m.title("Hello");
+        m.clear();
+        m.play(FadeIn { duration: 0.5 });
+        m.wait(1.0);
+
+        // Element cleared before animation — stays at invisible defaults
+        let fs = compute_frame_state(&m, 0.25);
+        assert!(!fs.elements[0].visible);
+        assert!((fs.elements[0].opacity - 0.0).abs() < f64::EPSILON);
+        assert!((fs.elements[0].scale - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn animation_with_preceding_segments() {
+        use moron_techniques::FadeIn;
+
+        let mut m = M::new();
+        m.narrate("Hello world");             // 0.8s narration [0.0, 0.8)
+        m.title("Title");                     // element 0, created at t=0.8
+        m.play(FadeIn { duration: 1.0 });     // animation [0.8, 1.8)
+        m.wait(1.0);                          // silence [1.8, 2.8)
+
+        // At t=0.8 (animation start): progress=0.0, opacity=0.0
+        let fs = compute_frame_state(&m, 0.8);
+        assert!(fs.elements[0].visible);
+        assert!((fs.elements[0].opacity - 0.0).abs() < f64::EPSILON);
+
+        // At t=1.3 (midpoint): progress=0.5, opacity=0.5
+        let fs = compute_frame_state(&m, 1.3);
+        assert!((fs.elements[0].opacity - 0.5).abs() < f64::EPSILON);
+
+        // At t=2.0 (after animation): progress=1.0, opacity=1.0
+        let fs = compute_frame_state(&m, 2.0);
+        assert!((fs.elements[0].opacity - 1.0).abs() < f64::EPSILON);
+    }
+
+    // -- Per-item animation tests (Stagger + Steps) -------------------------
+
+    #[test]
+    fn stagger_steps_per_item_opacity() {
+        use moron_techniques::{FadeIn, Stagger};
+
+        let mut m = M::new();
+        m.steps(&["a", "b", "c"]);
+        // Stagger with FadeIn: inner=0.5s, delay=0.1, count doesn't matter
+        // (apply_items receives count=3 from element's items).
+        // Total stagger duration for 3 items = 0.5 + 0.1*(3-1) = 0.7s
+        m.play(Stagger::new(FadeIn { duration: 0.5 }).with_delay(0.1));
+
+        // At start (t=0, progress=0): all items at apply(0) → opacity=0
+        let fs = compute_frame_state(&m, 0.0);
+        assert_eq!(fs.elements[0].items.len(), 3);
+        for item in &fs.elements[0].items {
+            assert!((item.opacity - 0.0).abs() < f64::EPSILON, "item opacity at start: {}", item.opacity);
+        }
+    }
+
+    #[test]
+    fn stagger_steps_first_item_animates_before_last() {
+        use moron_techniques::{FadeIn, Stagger};
+
+        let mut m = M::new();
+        m.steps(&["a", "b", "c"]);
+        // Total duration for 3 items: 0.5 + 0.1*2 = 0.7s
+        m.play(Stagger::new(FadeIn { duration: 0.5 }).with_delay(0.1));
+
+        // At t=0.35 (progress=0.5): first item well into animation, last item barely started
+        let fs = compute_frame_state(&m, 0.35);
+        let first = &fs.elements[0].items[0];
+        let last = &fs.elements[0].items[2];
+        assert!(first.opacity > last.opacity, "first item ({}) should be more opaque than last ({})", first.opacity, last.opacity);
+    }
+
+    #[test]
+    fn stagger_steps_end_state() {
+        use moron_techniques::{FadeIn, Stagger};
+
+        let mut m = M::new();
+        m.steps(&["a", "b", "c"]);
+        // Duration: 0.5 + 0.1*2 = 0.7s
+        let stagger = Stagger::new(FadeIn { duration: 0.5 }).with_delay(0.1);
+        m.play(stagger);
+        m.wait(1.0);
+
+        // At t=1.0 (well past animation end): all items fully opaque
+        let fs = compute_frame_state(&m, 1.0);
+        for item in &fs.elements[0].items {
+            assert!((item.opacity - 1.0).abs() < f64::EPSILON, "item opacity at end: {}", item.opacity);
+        }
+    }
+
+    #[test]
+    fn stagger_steps_element_level_stays_default() {
+        use moron_techniques::{FadeIn, Stagger};
+
+        let mut m = M::new();
+        m.steps(&["a", "b"]);
+        m.play(Stagger::new(FadeIn { duration: 0.5 }).with_delay(0.1));
+
+        // At midpoint: element-level opacity should remain 1.0
+        // (per-item transforms handle the animation, not element-level)
+        let fs = compute_frame_state(&m, 0.25);
+        assert!((fs.elements[0].opacity - 1.0).abs() < f64::EPSILON,
+            "element-level opacity should stay 1.0, got: {}", fs.elements[0].opacity);
+    }
+
+    #[test]
+    fn non_stagger_steps_all_items_same() {
+        use moron_techniques::FadeIn;
+
+        let mut m = M::new();
+        m.steps(&["a", "b", "c"]);
+        m.play(FadeIn { duration: 1.0 });
+
+        // At midpoint: FadeIn's apply_items default gives all items same opacity
+        let fs = compute_frame_state(&m, 0.5);
+        for item in &fs.elements[0].items {
+            assert!((item.opacity - 0.5).abs() < f64::EPSILON,
+                "non-stagger items should all have same opacity: {}", item.opacity);
+        }
+    }
+
+    #[test]
+    fn item_state_default_transforms() {
+        let mut m = M::new();
+        m.steps(&["x", "y"]);
+
+        // No animation: items should have default transforms
+        let fs = compute_frame_state(&m, 0.0);
+        for item in &fs.elements[0].items {
+            assert!((item.opacity - 1.0).abs() < f64::EPSILON);
+            assert!((item.scale - 1.0).abs() < f64::EPSILON);
+            assert!((item.translate_x - 0.0).abs() < f64::EPSILON);
+            assert!((item.translate_y - 0.0).abs() < f64::EPSILON);
+            assert!((item.rotation - 0.0).abs() < f64::EPSILON);
+        }
+    }
+
+    #[test]
+    fn item_state_serializes_as_camel_case() {
+        let mut m = M::new();
+        m.steps(&["a"]);
+
+        let fs = compute_frame_state(&m, 0.0);
+        let value: serde_json::Value = serde_json::to_value(&fs).unwrap();
+        let items = value["elements"][0]["items"].as_array().unwrap();
+        let item = &items[0];
+        assert!(item.get("text").is_some(), "should have 'text' field");
+        assert!(item.get("translateX").is_some(), "should have 'translateX' field");
+        assert!(item.get("translateY").is_some(), "should have 'translateY' field");
     }
 }

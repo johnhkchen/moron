@@ -1,4 +1,4 @@
-//! moron-cli: Binary wrapper for `moron build`, `moron preview`, and related commands.
+//! moron-cli: Binary wrapper for the `moron build` command.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 
 use moron_core::{
     build_video, BuildConfig, BuildError, BuildProgress, DemoScene, M, Scene,
+    WhatIsMoronScene,
 };
 
 #[derive(Parser)]
@@ -43,20 +44,11 @@ enum Commands {
         /// Keep intermediate frame PNGs (do not clean up temp directory)
         #[arg(long)]
         keep_frames: bool,
+
+        /// Scene to render: "what-is-moron" (default) or "demo"
+        #[arg(long, default_value = "what-is-moron")]
+        scene: String,
     },
-    /// Launch a live-preview window with hot reload
-    Preview {
-        /// Path to the project directory
-        #[arg(default_value = ".")]
-        path: String,
-    },
-    /// Scaffold a new moron project
-    Init {
-        /// Name of the new project
-        name: Option<String>,
-    },
-    /// Browse the built-in technique gallery
-    Gallery,
 }
 
 #[tokio::main]
@@ -71,18 +63,9 @@ async fn main() -> anyhow::Result<()> {
             width,
             height,
             keep_frames,
+            scene,
         } => {
-            run_build(path, output, html_path, width, height, keep_frames).await?;
-        }
-        Commands::Preview { path } => {
-            println!("moron preview: not yet implemented (path: {path})");
-        }
-        Commands::Init { name } => {
-            let name = name.as_deref().unwrap_or("my-moron-project");
-            println!("moron init: not yet implemented (name: {name})");
-        }
-        Commands::Gallery => {
-            println!("moron gallery: not yet implemented");
+            run_build(path, output, html_path, width, height, keep_frames, scene).await?;
         }
     }
 
@@ -97,13 +80,18 @@ async fn run_build(
     width: u32,
     height: u32,
     keep_frames: bool,
+    scene: String,
 ) -> anyhow::Result<()> {
     // Resolve the HTML path: CLI flag, or convention-based fallback.
     let resolved_html_path = resolve_html_path(&path, html_path.as_deref())?;
 
-    // Build the demo scene.
+    // Build the selected scene.
     let mut m = M::new();
-    DemoScene::build(&mut m);
+    match scene.as_str() {
+        "demo" => DemoScene::build(&mut m),
+        "what-is-moron" => WhatIsMoronScene::build(&mut m),
+        other => anyhow::bail!("Unknown scene: {other}. Available: what-is-moron, demo"),
+    };
 
     // Create progress callback.
     let progress: Arc<dyn Fn(BuildProgress) + Send + Sync> = Arc::new(|event| {
@@ -244,6 +232,9 @@ fn format_build_error(err: &BuildError) -> String {
                 "Error: TTS synthesis failed for narration segment {segment}.\n\
                  Details: {source}"
             )
+        }
+        BuildError::Audio(audio_err) => {
+            format!("Error: Audio assembly failed.\nDetails: {audio_err}")
         }
     }
 }

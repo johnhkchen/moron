@@ -55,6 +55,10 @@ pub enum BuildError {
         /// The underlying synthesis error.
         source: anyhow::Error,
     },
+
+    /// Audio clip combination failed (sample rate or channel mismatch).
+    #[error("audio error: {0}")]
+    Audio(#[from] moron_voice::AudioError),
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +288,7 @@ pub async fn build_video(m: &mut M, config: BuildConfig) -> Result<BuildResult, 
         m.timeline(),
         sample_rate,
         narration_clips.as_deref(),
-    );
+    )?;
     let wav_bytes = audio_clip.to_wav_bytes();
     std::fs::write(&audio_path, &wav_bytes)?;
 

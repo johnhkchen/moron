@@ -27,6 +27,31 @@ export type ElementKind =
   | { type: "steps"; count: number };
 
 // ---------------------------------------------------------------------------
+// ItemState — per-item visual snapshot (for Steps elements)
+// ---------------------------------------------------------------------------
+
+/**
+ * The visual state of a single item within a Steps element.
+ *
+ * Rust: `frame::ItemState` with `#[serde(rename_all = "camelCase")]`.
+ * Carries per-item text alongside individual transforms for Stagger animations.
+ */
+export interface ItemState {
+  /** Item text content. */
+  text: string;
+  /** Opacity: 0.0 = transparent, 1.0 = fully opaque. */
+  opacity: number;
+  /** Horizontal translation in pixels. */
+  translateX: number;
+  /** Vertical translation in pixels. */
+  translateY: number;
+  /** Scale factor: 1.0 = normal size. */
+  scale: number;
+  /** Rotation in degrees. */
+  rotation: number;
+}
+
+// ---------------------------------------------------------------------------
 // ElementState — per-element visual snapshot
 // ---------------------------------------------------------------------------
 
@@ -43,8 +68,8 @@ export interface ElementState {
   kind: ElementKind;
   /** Primary text content. */
   content: string;
-  /** List items (non-empty only for Steps elements). */
-  items: string[];
+  /** List items with per-item visual state (non-empty only for Steps elements). */
+  items: ItemState[];
   /** Whether this element is currently visible. */
   visible: boolean;
   /** Opacity: 0.0 = transparent, 1.0 = fully opaque. */
@@ -57,6 +82,8 @@ export interface ElementState {
   scale: number;
   /** Rotation in degrees. */
   rotation: number;
+  /** Vertical layout position: 0.0 = top, 0.5 = center, 1.0 = bottom. */
+  layoutY: number;
 }
 
 // ---------------------------------------------------------------------------

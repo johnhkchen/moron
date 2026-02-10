@@ -1,4 +1,4 @@
-//! Data-driven techniques: BarChartRace, CountUp, Annotate, FlowDiagram, etc.
+//! Data-driven techniques: `BarChartRace`, `CountUp`, Annotate, `FlowDiagram`, etc.
 
 use crate::technique::{Technique, TechniqueOutput};
 
@@ -25,6 +25,7 @@ impl Default for CountUp {
 
 impl CountUp {
     /// Get the interpolated value at the given progress (0.0 to 1.0).
+    #[must_use]
     pub fn current_value(&self, progress: f64) -> f64 {
         let p = progress.clamp(0.0, 1.0);
         self.from + (self.to - self.from) * p
@@ -32,7 +33,7 @@ impl CountUp {
 }
 
 impl Technique for CountUp {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "CountUp"
     }
 

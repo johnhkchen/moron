@@ -51,6 +51,26 @@ pub(crate) struct ElementRecord {
     /// Number of timeline segments that existed when this element was created.
     /// Used to recompute `created_at` after narration durations are resolved.
     pub segments_at_creation: usize,
+    /// Timeline position (in seconds) when this element was cleared from the screen.
+    /// `None` means the element stays visible until the end of the timeline.
+    pub ended_at: Option<f64>,
+    /// Number of timeline segments that existed when this element was ended.
+    /// Used to recompute `ended_at` after narration durations are resolved.
+    pub segments_at_end: Option<usize>,
+}
+
+/// Internal record of an animation, binding a technique to its target elements.
+///
+/// Stored on `M` and queried by `compute_frame_state()` to apply animation
+/// transforms to elements during rendering.
+pub(crate) struct AnimationRecord {
+    /// The boxed technique object — called via `apply(progress)` at frame time.
+    pub technique: Box<dyn moron_techniques::Technique>,
+    /// Element IDs this animation applies to.
+    pub target_ids: Vec<u64>,
+    /// Index into `timeline.segments()` for this animation's segment.
+    /// Used to compute absolute time window (survives duration resolution).
+    pub segment_index: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +135,8 @@ pub struct M {
     timeline: Timeline,
     /// Registry of all minted elements with their metadata.
     elements: Vec<ElementRecord>,
+    /// Registry of all animation records (technique + target + segment index).
+    animations: Vec<AnimationRecord>,
 }
 
 impl M {
@@ -126,6 +148,7 @@ impl M {
             current_voice: Voice::kokoro(),
             timeline: Timeline::default(),
             elements: Vec::new(),
+            animations: Vec::new(),
         }
     }
 
@@ -223,15 +246,46 @@ impl M {
             .add_segment(Segment::Silence { duration });
     }
 
+    // -- Scene management --------------------------------------------------
+
+    /// Clear all visible elements from the screen.
+    ///
+    /// Marks every element that doesn't already have an `ended_at` with the
+    /// current timeline position, so they become invisible from this point on.
+    /// Call this between logical "slides" to get a clean screen.
+    pub fn clear(&mut self) {
+        let now = self.timeline.total_duration();
+        let seg_count = self.timeline.segments().len();
+        for rec in &mut self.elements {
+            if rec.ended_at.is_none() {
+                rec.ended_at = Some(now);
+                rec.segments_at_end = Some(seg_count);
+            }
+        }
+    }
+
     // -- Techniques --------------------------------------------------------
 
     /// Execute a composable animation technique.
     ///
-    /// Records an [`Animation`](Segment::Animation) segment on the timeline.
-    pub fn play(&mut self, technique: impl moron_techniques::Technique) {
+    /// Records an [`Animation`](Segment::Animation) segment on the timeline and
+    /// stores the technique object for frame-time evaluation. The animation
+    /// targets the most recently created element.
+    pub fn play(&mut self, technique: impl moron_techniques::Technique + 'static) {
+        let segment_index = self.timeline.segments().len();
+        let target_ids = self
+            .elements
+            .last()
+            .map(|e| vec![e.id])
+            .unwrap_or_default();
         self.timeline.add_segment(Segment::Animation {
             name: technique.name().to_string(),
             duration: technique.duration(),
+        });
+        self.animations.push(AnimationRecord {
+            technique: Box::new(technique),
+            target_ids,
+            segment_index,
         });
     }
 
@@ -252,6 +306,11 @@ impl M {
     /// Get the element metadata records (for frame state computation).
     pub(crate) fn elements(&self) -> &[ElementRecord] {
         &self.elements
+    }
+
+    /// Get the animation records (for frame state computation).
+    pub(crate) fn animations(&self) -> &[AnimationRecord] {
+        &self.animations
     }
 
     // -- Duration resolution -----------------------------------------------
@@ -289,12 +348,20 @@ impl M {
             self.timeline.update_segment_duration(idx, dur);
         }
 
-        // Recompute element created_at timestamps.
+        // Recompute element created_at and ended_at timestamps.
         for rec in &mut self.elements {
             rec.created_at = self.timeline.segments()[..rec.segments_at_creation]
                 .iter()
                 .map(|s| s.duration())
                 .sum();
+            if let Some(seg_count) = rec.segments_at_end {
+                rec.ended_at = Some(
+                    self.timeline.segments()[..seg_count]
+                        .iter()
+                        .map(|s| s.duration())
+                        .sum(),
+                );
+            }
         }
 
         Ok(())
@@ -322,6 +389,8 @@ impl M {
             items,
             created_at,
             segments_at_creation,
+            ended_at: None,
+            segments_at_end: None,
         });
 
         Element(id)

@@ -398,7 +398,7 @@ fn e2e_audio_assembly_from_demo_scene() {
     let mut m = M::new();
     DemoScene::build(&mut m);
 
-    let clip = assemble_audio_track(m.timeline(), moron_voice::DEFAULT_SAMPLE_RATE, None);
+    let clip = assemble_audio_track(m.timeline(), moron_voice::DEFAULT_SAMPLE_RATE, None).unwrap();
 
     // Audio duration should match timeline duration.
     let tl_dur = m.timeline().total_duration();
@@ -492,7 +492,7 @@ fn e2e_full_pipeline() {
     assert!(video_size > 0, "Video-only .mp4 should be non-empty");
 
     // Step 5: Assemble audio track and write as WAV.
-    let audio_clip = assemble_audio_track(m.timeline(), moron_voice::DEFAULT_SAMPLE_RATE, None);
+    let audio_clip = assemble_audio_track(m.timeline(), moron_voice::DEFAULT_SAMPLE_RATE, None).unwrap();
     let wav_bytes = audio_clip.to_wav_bytes();
     std::fs::write(&audio_path, &wav_bytes).expect("failed to write audio WAV");
 
@@ -792,7 +792,7 @@ fn e2e_audio_assembly_with_tts_clips() {
         .expect("duration resolution failed");
 
     // Assemble audio track with the TTS clips.
-    let assembled = assemble_audio_track(m.timeline(), sample_rate, Some(&clips));
+    let assembled = assemble_audio_track(m.timeline(), sample_rate, Some(&clips)).unwrap();
 
     // Total duration should match timeline.
     let tl_dur = m.timeline().total_duration();
@@ -925,7 +925,7 @@ fn e2e_full_pipeline_with_tts() {
 
     // Step 4: Assemble audio track with real TTS clips.
     let kokoro_sr = moron_voice::KOKORO_SAMPLE_RATE;
-    let assembled = assemble_audio_track(m.timeline(), kokoro_sr, Some(&clips));
+    let assembled = assemble_audio_track(m.timeline(), kokoro_sr, Some(&clips)).unwrap();
 
     assert!(
         (assembled.duration() - tts_duration).abs() < 0.1,

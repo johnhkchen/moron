@@ -3,6 +3,18 @@
 /// Default sample rate for video production (48 kHz, broadcast standard).
 pub const DEFAULT_SAMPLE_RATE: u32 = 48000;
 
+/// Errors that can occur when combining audio clips.
+#[derive(Debug, thiserror::Error)]
+pub enum AudioError {
+    /// Attempted to combine clips with different sample rates.
+    #[error("sample rate mismatch: expected {expected}, got {got}")]
+    SampleRateMismatch { expected: u32, got: u32 },
+
+    /// Attempted to combine clips with different channel counts.
+    #[error("channel count mismatch: expected {expected}, got {got}")]
+    ChannelCountMismatch { expected: u16, got: u16 },
+}
+
 /// Raw audio clip produced by a TTS backend.
 #[derive(Debug, Clone)]
 pub struct AudioClip {
@@ -43,23 +55,27 @@ impl AudioClip {
 
     /// Append another clip's samples to this clip.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `other` has a different `sample_rate` or `channels` value.
-    pub fn append(&mut self, other: &AudioClip) {
-        assert_eq!(
-            self.sample_rate, other.sample_rate,
-            "cannot append clips with different sample rates ({} vs {})",
-            self.sample_rate, other.sample_rate
-        );
-        assert_eq!(
-            self.channels, other.channels,
-            "cannot append clips with different channel counts ({} vs {})",
-            self.channels, other.channels
-        );
+    /// Returns [`AudioError::SampleRateMismatch`] if `other` has a different sample rate,
+    /// or [`AudioError::ChannelCountMismatch`] if `other` has a different channel count.
+    pub fn append(&mut self, other: &AudioClip) -> Result<(), AudioError> {
+        if self.sample_rate != other.sample_rate {
+            return Err(AudioError::SampleRateMismatch {
+                expected: self.sample_rate,
+                got: other.sample_rate,
+            });
+        }
+        if self.channels != other.channels {
+            return Err(AudioError::ChannelCountMismatch {
+                expected: self.channels,
+                got: other.channels,
+            });
+        }
         self.data.extend_from_slice(&other.data);
         self.duration =
             self.data.len() as f64 / (self.sample_rate as f64 * self.channels as f64);
+        Ok(())
     }
 
     /// Concatenate a sequence of clips into a single clip.
@@ -67,11 +83,11 @@ impl AudioClip {
     /// If `clips` is empty, returns a zero-duration clip with the given
     /// `sample_rate` and `channels`.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if any clip has a different `sample_rate` or `channels` than
-    /// the specified values.
-    pub fn concat(clips: &[AudioClip], sample_rate: u32, channels: u16) -> AudioClip {
+    /// Returns [`AudioError`] if any clip has a different `sample_rate` or
+    /// `channels` than the specified values.
+    pub fn concat(clips: &[AudioClip], sample_rate: u32, channels: u16) -> Result<AudioClip, AudioError> {
         let mut result = AudioClip {
             data: Vec::new(),
             duration: 0.0,
@@ -79,9 +95,9 @@ impl AudioClip {
             channels,
         };
         for clip in clips {
-            result.append(clip);
+            result.append(clip)?;
         }
-        result
+        Ok(result)
     }
 
     /// Encode this clip as WAV bytes (16-bit signed PCM, RIFF/WAVE container).
@@ -170,7 +186,7 @@ mod tests {
         let b = AudioClip::silence(1.0, 48000);
         assert_eq!(a.data.len(), 48000);
 
-        a.append(&b);
+        a.append(&b).unwrap();
         assert_eq!(a.data.len(), 96000);
         assert!((a.duration() - 2.0).abs() < 1e-10);
         assert_eq!(a.sample_rate, 48000);
@@ -178,29 +194,28 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "different sample rates")]
-    fn test_append_panics_on_sample_rate_mismatch() {
+    fn test_append_returns_error_on_sample_rate_mismatch() {
         let mut a = AudioClip::silence(1.0, 48000);
         let b = AudioClip::silence(1.0, 44100);
-        a.append(&b);
+        let err = a.append(&b).unwrap_err();
+        assert!(matches!(err, AudioError::SampleRateMismatch { expected: 48000, got: 44100 }));
     }
 
     #[test]
-    #[should_panic(expected = "different channel counts")]
-    fn test_append_panics_on_channel_mismatch() {
+    fn test_append_returns_error_on_channel_mismatch() {
         let mut a = AudioClip::silence(1.0, 48000);
         let mut b = AudioClip::silence(1.0, 48000);
         b.channels = 2;
-        // Need to double data to match stereo channel count
         b.data.extend_from_slice(&vec![0.0; 48000]);
-        a.append(&b);
+        let err = a.append(&b).unwrap_err();
+        assert!(matches!(err, AudioError::ChannelCountMismatch { expected: 1, got: 2 }));
     }
 
     // -- concat tests -------------------------------------------------------
 
     #[test]
     fn test_concat_empty() {
-        let result = AudioClip::concat(&[], 48000, 1);
+        let result = AudioClip::concat(&[], 48000, 1).unwrap();
         assert_eq!(result.data.len(), 0);
         assert!((result.duration()).abs() < f64::EPSILON);
         assert_eq!(result.sample_rate, 48000);
@@ -210,7 +225,7 @@ mod tests {
     #[test]
     fn test_concat_single() {
         let clip = AudioClip::silence(2.0, 48000);
-        let result = AudioClip::concat(&[clip], 48000, 1);
+        let result = AudioClip::concat(&[clip], 48000, 1).unwrap();
         assert_eq!(result.data.len(), 96000);
         assert!((result.duration() - 2.0).abs() < 1e-10);
     }
@@ -220,7 +235,7 @@ mod tests {
         let a = AudioClip::silence(1.0, 48000);
         let b = AudioClip::silence(0.5, 48000);
         let c = AudioClip::silence(2.0, 48000);
-        let result = AudioClip::concat(&[a, b, c], 48000, 1);
+        let result = AudioClip::concat(&[a, b, c], 48000, 1).unwrap();
 
         let expected_samples = 48000 + 24000 + 96000;
         assert_eq!(result.data.len(), expected_samples);

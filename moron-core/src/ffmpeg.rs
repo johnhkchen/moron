@@ -286,7 +286,7 @@ pub fn assemble_audio_track(
     timeline: &Timeline,
     sample_rate: u32,
     narration_clips: Option<&[AudioClip]>,
-) -> AudioClip {
+) -> Result<AudioClip, moron_voice::AudioError> {
     let mut narration_idx: usize = 0;
 
     let clips: Vec<AudioClip> = timeline
@@ -312,6 +312,7 @@ pub fn assemble_audio_track(
 
     AudioClip::concat(&clips, sample_rate, 1)
 }
+
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -744,7 +745,7 @@ mod tests {
         use crate::timeline::Timeline;
 
         let tl = Timeline::default();
-        let clip = assemble_audio_track(&tl, 48000, None);
+        let clip = assemble_audio_track(&tl, 48000, None).unwrap();
         assert_eq!(clip.data.len(), 0);
         assert!((clip.duration() - 0.0).abs() < f64::EPSILON);
         assert_eq!(clip.sample_rate, 48000);
@@ -761,7 +762,7 @@ mod tests {
             duration: 2.0,
         });
 
-        let clip = assemble_audio_track(&tl, 48000, None);
+        let clip = assemble_audio_track(&tl, 48000, None).unwrap();
         assert!((clip.duration() - 2.0).abs() < 1e-10);
         assert_eq!(clip.data.len(), 96000); // 2.0 * 48000
     }
@@ -785,7 +786,7 @@ mod tests {
             duration: 2.0,
         });
 
-        let clip = assemble_audio_track(&tl, 48000, None);
+        let clip = assemble_audio_track(&tl, 48000, None).unwrap();
 
         // Total duration should match timeline
         let expected_duration = 3.0 + 0.5 + 1.0 + 2.0;
@@ -801,7 +802,7 @@ mod tests {
         tl.add_segment(Segment::Silence { duration: 1.0 });
         tl.add_segment(Segment::Silence { duration: 0.5 });
 
-        let clip = assemble_audio_track(&tl, 48000, None);
+        let clip = assemble_audio_track(&tl, 48000, None).unwrap();
 
         // 1.0s = 48000 samples, 0.5s = 24000 samples
         assert_eq!(clip.data.len(), 48000 + 24000);
@@ -837,7 +838,7 @@ mod tests {
         };
 
         let narration_clips = vec![clip1, clip2];
-        let result = assemble_audio_track(&tl, 48000, Some(&narration_clips));
+        let result = assemble_audio_track(&tl, 48000, Some(&narration_clips)).unwrap();
 
         // Total: 1.0s (narration) + 0.5s (silence) + 1.5s (narration) = 3.0s
         assert!((result.duration() - 3.0).abs() < 1e-10);
@@ -862,7 +863,7 @@ mod tests {
         });
 
         // None means silence fallback
-        let clip = assemble_audio_track(&tl, 48000, None);
+        let clip = assemble_audio_track(&tl, 48000, None).unwrap();
         assert!((clip.duration() - 1.0).abs() < 1e-10);
         // All samples should be zero (silence)
         assert!(clip.data.iter().all(|&s| s == 0.0));

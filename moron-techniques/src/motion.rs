@@ -1,4 +1,4 @@
-//! Motion techniques: SlideIn, ArcPath, Orbit, SpringPop, Parallax, etc.
+//! Motion techniques: `SlideIn`, `ArcPath`, Orbit, `SpringPop`, Parallax, etc.
 
 use crate::technique::{Technique, TechniqueOutput};
 
@@ -21,7 +21,7 @@ impl Default for Slide {
 }
 
 impl Technique for Slide {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Slide"
     }
 
@@ -58,7 +58,7 @@ impl Default for Scale {
 }
 
 impl Technique for Scale {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "Scale"
     }
 

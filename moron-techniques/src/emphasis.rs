@@ -1,1 +1,1 @@
-//! Emphasis techniques: Pulse, Highlight, Underline, ColorShift, etc.
+//! Emphasis techniques: Pulse, Highlight, Underline, `ColorShift`, etc.

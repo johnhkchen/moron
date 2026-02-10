@@ -1,4 +1,4 @@
-//! Reveal techniques: TypeWriter, SweepIn, PixelDissolve, MaskWipe, etc.
+//! Reveal techniques: `TypeWriter`, `SweepIn`, `PixelDissolve`, `MaskWipe`, etc.
 
 use crate::technique::{Technique, TechniqueOutput};
 
@@ -15,7 +15,7 @@ impl Default for FadeIn {
 }
 
 impl Technique for FadeIn {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "FadeIn"
     }
 
@@ -48,7 +48,7 @@ impl Default for FadeUp {
 }
 
 impl Technique for FadeUp {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "FadeUp"
     }
 

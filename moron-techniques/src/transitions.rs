@@ -1,1 +1,1 @@
-//! Transition techniques: CrossFade, Morph, CutTo, IrisWipe, etc.
+//! Transition techniques: `CrossFade`, Morph, `CutTo`, `IrisWipe`, etc.
