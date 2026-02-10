@@ -8,7 +8,7 @@ pub mod backend;
 pub mod kokoro;
 pub mod piper;
 
-pub use audio::AudioClip;
+pub use audio::{AudioClip, DEFAULT_SAMPLE_RATE};
 pub use backend::{Voice, VoiceBackend, VoiceBackendType};
 pub use kokoro::KokoroBackend;
 pub use piper::PiperBackend;

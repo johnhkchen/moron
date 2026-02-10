@@ -19,6 +19,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use moron_voice::AudioClip;
+
+use crate::timeline::Timeline;
+
 // ---------------------------------------------------------------------------
 // FfmpegError
 // ---------------------------------------------------------------------------
@@ -196,6 +200,93 @@ pub fn encode(config: &EncodeConfig) -> Result<(), FfmpegError> {
 }
 
 // ---------------------------------------------------------------------------
+// mux_audio
+// ---------------------------------------------------------------------------
+
+/// Mux a video file with an audio file into a final `.mp4`.
+///
+/// The video stream is copied without re-encoding (`-c:v copy`).
+/// The audio stream is encoded to AAC (`-c:a aac`). The `-shortest` flag
+/// ensures the output duration matches the shorter of the two inputs.
+///
+/// # Errors
+///
+/// Returns [`FfmpegError`] if:
+/// - The video or audio file does not exist
+/// - FFmpeg is not installed or not on PATH
+/// - FFmpeg exits with a non-zero status
+pub fn mux_audio(
+    video_path: &Path,
+    audio_path: &Path,
+    output_path: &Path,
+) -> Result<(), FfmpegError> {
+    // Validate inputs exist.
+    if !video_path.exists() {
+        return Err(FfmpegError::InvalidInput {
+            reason: format!("video file does not exist: {}", video_path.display()),
+        });
+    }
+    if !audio_path.exists() {
+        return Err(FfmpegError::InvalidInput {
+            reason: format!("audio file does not exist: {}", audio_path.display()),
+        });
+    }
+
+    detect_ffmpeg()?;
+
+    let args = build_mux_args(video_path, audio_path, output_path);
+
+    let output = Command::new("ffmpeg")
+        .args(&args)
+        .output()
+        .map_err(|e| FfmpegError::EncodeFailed {
+            message: format!("failed to spawn FFmpeg process: {e}"),
+            stderr: String::new(),
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let code = output
+            .status
+            .code()
+            .map(|c| format!("exit code {c}"))
+            .unwrap_or_else(|| "killed by signal".to_string());
+
+        return Err(FfmpegError::EncodeFailed {
+            message: format!("FFmpeg muxing failed with {code}"),
+            stderr,
+        });
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// assemble_audio_track
+// ---------------------------------------------------------------------------
+
+/// Walk timeline segments and produce a single [`AudioClip`].
+///
+/// Every segment is currently rendered as silence of its specified duration.
+/// When real TTS is available, `Narration` segments will produce synthesized
+/// speech and `Clip` segments will load pre-recorded audio. The concatenation
+/// and WAV encoding path remains the same.
+///
+/// # Arguments
+///
+/// * `timeline` -- the timeline whose segments define the audio track
+/// * `sample_rate` -- the sample rate for the output clip (e.g. 48000)
+pub fn assemble_audio_track(timeline: &Timeline, sample_rate: u32) -> AudioClip {
+    let clips: Vec<AudioClip> = timeline
+        .segments()
+        .iter()
+        .map(|seg| AudioClip::silence(seg.duration(), sample_rate))
+        .collect();
+
+    AudioClip::concat(&clips, sample_rate, 1)
+}
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -313,6 +404,28 @@ fn build_ffmpeg_args(config: &EncodeConfig) -> Vec<String> {
         format!("scale={}:{}", config.width, config.height),
         // Output file path.
         output,
+    ]
+}
+
+/// Build the FFmpeg command-line arguments for muxing video + audio.
+///
+/// Produces arguments equivalent to:
+/// ```text
+/// ffmpeg -y -i {video} -i {audio} -c:v copy -c:a aac -shortest {output}
+/// ```
+fn build_mux_args(video_path: &Path, audio_path: &Path, output_path: &Path) -> Vec<String> {
+    vec![
+        "-y".to_string(),
+        "-i".to_string(),
+        video_path.to_string_lossy().to_string(),
+        "-i".to_string(),
+        audio_path.to_string_lossy().to_string(),
+        "-c:v".to_string(),
+        "copy".to_string(),
+        "-c:a".to_string(),
+        "aac".to_string(),
+        "-shortest".to_string(),
+        output_path.to_string_lossy().to_string(),
     ]
 }
 
@@ -595,5 +708,139 @@ mod tests {
         assert_eq!(DEFAULT_WIDTH, 1920);
         assert_eq!(DEFAULT_HEIGHT, 1080);
         assert_eq!(DEFAULT_FPS, 30);
+    }
+
+    // -- assemble_audio_track tests ----------------------------------------
+
+    #[test]
+    fn test_assemble_empty_timeline() {
+        use crate::timeline::Timeline;
+
+        let tl = Timeline::default();
+        let clip = assemble_audio_track(&tl, 48000);
+        assert_eq!(clip.data.len(), 0);
+        assert!((clip.duration() - 0.0).abs() < f64::EPSILON);
+        assert_eq!(clip.sample_rate, 48000);
+        assert_eq!(clip.channels, 1);
+    }
+
+    #[test]
+    fn test_assemble_single_segment() {
+        use crate::timeline::{Segment, Timeline};
+
+        let mut tl = Timeline::new(30);
+        tl.add_segment(Segment::Narration {
+            text: "Hello world".into(),
+            duration: 2.0,
+        });
+
+        let clip = assemble_audio_track(&tl, 48000);
+        assert!((clip.duration() - 2.0).abs() < 1e-10);
+        assert_eq!(clip.data.len(), 96000); // 2.0 * 48000
+    }
+
+    #[test]
+    fn test_assemble_mixed_segments() {
+        use crate::timeline::{Segment, Timeline};
+
+        let mut tl = Timeline::new(30);
+        tl.add_segment(Segment::Narration {
+            text: "Intro".into(),
+            duration: 3.0,
+        });
+        tl.add_segment(Segment::Silence { duration: 0.5 });
+        tl.add_segment(Segment::Animation {
+            name: "FadeIn".into(),
+            duration: 1.0,
+        });
+        tl.add_segment(Segment::Clip {
+            path: "/tmp/clip.wav".into(),
+            duration: 2.0,
+        });
+
+        let clip = assemble_audio_track(&tl, 48000);
+
+        // Total duration should match timeline
+        let expected_duration = 3.0 + 0.5 + 1.0 + 2.0;
+        assert!((clip.duration() - expected_duration).abs() < 1e-10);
+        assert!((clip.duration() - tl.total_duration()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_assemble_sample_count() {
+        use crate::timeline::{Segment, Timeline};
+
+        let mut tl = Timeline::new(30);
+        tl.add_segment(Segment::Silence { duration: 1.0 });
+        tl.add_segment(Segment::Silence { duration: 0.5 });
+
+        let clip = assemble_audio_track(&tl, 48000);
+
+        // 1.0s = 48000 samples, 0.5s = 24000 samples
+        assert_eq!(clip.data.len(), 48000 + 24000);
+    }
+
+    // -- build_mux_args tests ----------------------------------------------
+
+    #[test]
+    fn test_build_mux_args() {
+        let args = build_mux_args(
+            Path::new("/tmp/video.mp4"),
+            Path::new("/tmp/audio.wav"),
+            Path::new("/tmp/output.mp4"),
+        );
+
+        assert!(args.contains(&"-y".to_string()));
+        assert!(args.contains(&"-c:v".to_string()));
+        assert!(args.contains(&"copy".to_string()));
+        assert!(args.contains(&"-c:a".to_string()));
+        assert!(args.contains(&"aac".to_string()));
+        assert!(args.contains(&"-shortest".to_string()));
+
+        // Check that both input files appear after -i flags
+        let i_positions: Vec<usize> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| *a == "-i")
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(i_positions.len(), 2);
+        assert_eq!(args[i_positions[0] + 1], "/tmp/video.mp4");
+        assert_eq!(args[i_positions[1] + 1], "/tmp/audio.wav");
+
+        // Output is the last argument
+        assert_eq!(args.last().unwrap(), "/tmp/output.mp4");
+    }
+
+    // -- mux_audio input validation tests ----------------------------------
+
+    #[test]
+    fn test_mux_audio_missing_video() {
+        let result = mux_audio(
+            Path::new("/nonexistent/video.mp4"),
+            Path::new("/tmp/audio.wav"),
+            Path::new("/tmp/output.mp4"),
+        );
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("video file does not exist"));
+    }
+
+    #[test]
+    fn test_mux_audio_missing_audio() {
+        // Create a temp video file so the first check passes
+        let video_tmp = std::env::temp_dir().join("moron_test_mux_video.mp4");
+        fs::write(&video_tmp, &[0u8; 4]).unwrap();
+
+        let result = mux_audio(
+            &video_tmp,
+            Path::new("/nonexistent/audio.wav"),
+            Path::new("/tmp/output.mp4"),
+        );
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("audio file does not exist"));
+
+        fs::remove_file(&video_tmp).ok();
     }
 }
