@@ -1,0 +1,96 @@
+/*
+ * Moron Default Theme
+ *
+ * CSS custom properties that define the visual identity for the default theme.
+ * These properties are consumed by Tailwind via the theme contract in
+ * tailwind.config.ts and can be overridden by custom themes.
+ */
+
+:root {
+  /* ── Colors ── */
+
+  /* Background */
+  --moron-bg-primary: #0f172a;
+  --moron-bg-secondary: #1e293b;
+  --moron-bg-tertiary: #334155;
+
+  /* Foreground / text */
+  --moron-fg-primary: #f8fafc;
+  --moron-fg-secondary: #cbd5e1;
+  --moron-fg-muted: #64748b;
+
+  /* Accent */
+  --moron-accent: #3b82f6;
+  --moron-accent-hover: #60a5fa;
+  --moron-accent-subtle: rgba(59, 130, 246, 0.15);
+
+  /* Semantic */
+  --moron-success: #22c55e;
+  --moron-warning: #eab308;
+  --moron-error: #ef4444;
+
+  /* ── Typography ── */
+
+  --moron-font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --moron-font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --moron-text-xs: 0.75rem;
+  --moron-text-sm: 0.875rem;
+  --moron-text-base: 1rem;
+  --moron-text-lg: 1.25rem;
+  --moron-text-xl: 1.5rem;
+  --moron-text-2xl: 2rem;
+  --moron-text-3xl: 2.5rem;
+  --moron-text-4xl: 3.5rem;
+
+  --moron-leading-tight: 1.15;
+  --moron-leading-normal: 1.5;
+  --moron-leading-relaxed: 1.75;
+
+  --moron-font-weight-normal: 400;
+  --moron-font-weight-medium: 500;
+  --moron-font-weight-semibold: 600;
+  --moron-font-weight-bold: 700;
+
+  /* ── Spacing ── */
+
+  --moron-space-1: 0.25rem;
+  --moron-space-2: 0.5rem;
+  --moron-space-3: 0.75rem;
+  --moron-space-4: 1rem;
+  --moron-space-6: 1.5rem;
+  --moron-space-8: 2rem;
+  --moron-space-12: 3rem;
+  --moron-space-16: 4rem;
+  --moron-space-24: 6rem;
+
+  /* Container padding (scene-level) */
+  --moron-container-padding: var(--moron-space-12);
+
+  /* ── Border radius ── */
+
+  --moron-radius-sm: 0.25rem;
+  --moron-radius-md: 0.5rem;
+  --moron-radius-lg: 1rem;
+  --moron-radius-full: 9999px;
+
+  /* ── Animation timing ── */
+
+  --moron-duration-instant: 0ms;
+  --moron-duration-fast: 150ms;
+  --moron-duration-normal: 300ms;
+  --moron-duration-slow: 500ms;
+  --moron-duration-slower: 800ms;
+
+  --moron-ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --moron-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --moron-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --moron-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --moron-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── Shadows ── */
+
+  --moron-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --moron-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+  --moron-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.4);
+}
