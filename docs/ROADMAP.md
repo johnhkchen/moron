@@ -4,7 +4,7 @@
 
 Work is organized into sprints (stories), not calendar quarters. Each sprint ships a meaningful capability. No artificial time gates — when a sprint is done, the next one starts.
 
-**Current status:** Sprint 3 next (S-004: Frame Rendering Pipeline)
+**Current status:** Sprints 5 and 6 active (S-006: TTS Integration, S-007: Templates & Polish)
 
 ---
 
@@ -32,22 +32,18 @@ Implemented the timeline and core animation techniques.
 - M facade recording all methods to timeline
 - 53 tests passing, clippy clean
 
----
+### Sprint 3: Frame Rendering Pipeline (S-004) ✓
 
-## Active Sprints
-
-### Sprint 3: Frame Rendering Pipeline (S-004)
-
-Bridge Rust timeline state to visual output via React and headless Chromium.
+Bridged Rust timeline state to visual output via React and headless Chromium.
 
 - Frame state serialization (timeline position → JSON props)
 - React `<MoronFrame>` base component consuming frame state
 - Headless Chromium bridge via CDP for screenshot capture
 - Frame rendering loop: iterate timeline at FPS, output numbered PNGs
 
-### Sprint 4: Video Output Pipeline (S-005)
+### Sprint 4: Video Output Pipeline (S-005) ✓
 
-Turn rendered frames into a finished .mp4 video.
+Turned rendered frames into a finished .mp4 video.
 
 - FFmpeg integration for H.264 encoding
 - Audio track assembly from timeline segments
@@ -56,25 +52,29 @@ Turn rendered frames into a finished .mp4 video.
 
 ---
 
-## Future Sprints
+## Active Sprints
 
-### Sprint 5: TTS Integration
+### Sprint 5: TTS Integration (S-006)
 
 Wire actual text-to-speech into the narration pipeline.
 
-- Kokoro TTS backend (kokorox crate, ONNX runtime)
-- Real audio generation from narrate() text
-- Audio-synced timeline (visual pacing driven by actual TTS durations)
-- Audio muxing with generated speech
+- Kokoro TTS backend via kokorox crate
+- Audio-synced timeline (TTS durations drive visual pacing)
+- Pipeline integration (real audio in final .mp4)
+- TTS validation tests
 
-### Sprint 6: Templates & Polish
+### Sprint 6: Templates & Polish (S-007)
 
 Deliver polished visual output through themed React templates.
 
-- 5-10 production-ready React templates in @moron/ui
-- Tailwind theme contract in practice
-- Convention-based data binding (data-moron attributes)
-- First "professional-looking" output
+- Template system architecture and host page bundling
+- Default explainer template with title cards, sections, metrics, steps
+- Theme CSS integration end-to-end
+- Visual regression testing
+
+---
+
+## Future Sprints
 
 ### Sprint 7: Data Visualization & Clips
 
