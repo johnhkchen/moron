@@ -2,8 +2,13 @@
 //!
 //! Supports Kokoro (primary), Piper (fallback), API providers, and pre-recorded audio.
 
+pub mod alignment;
+pub mod audio;
 pub mod backend;
 pub mod kokoro;
 pub mod piper;
-pub mod alignment;
-pub mod audio;
+
+pub use audio::AudioClip;
+pub use backend::{Voice, VoiceBackend, VoiceBackendType};
+pub use kokoro::KokoroBackend;
+pub use piper::PiperBackend;
