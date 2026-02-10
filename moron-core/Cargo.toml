@@ -14,8 +14,10 @@ tokio.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 
+futures.workspace = true
+
 # Heavy dependencies — uncomment when integration code is ready:
 # bevy = { workspace = true }
 # wgpu = { workspace = true }
 # vello = { workspace = true }
-# chromiumoxide = { workspace = true }
+chromiumoxide = { workspace = true }
