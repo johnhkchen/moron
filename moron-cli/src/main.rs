@@ -108,6 +108,14 @@ async fn run_build(
     // Create progress callback.
     let progress: Arc<dyn Fn(BuildProgress) + Send + Sync> = Arc::new(|event| {
         match event {
+            BuildProgress::SynthesizingTts { current, total } => {
+                eprintln!(
+                    "[0/4] Synthesizing TTS {}/{} ({:.0}%)",
+                    current + 1,
+                    total,
+                    (current + 1) as f64 / total as f64 * 100.0,
+                );
+            }
             BuildProgress::SceneBuilt { total_duration, total_frames } => {
                 eprintln!(
                     "[1/4] Scene built: {total_frames} frames, {total_duration:.1}s"
@@ -145,9 +153,10 @@ async fn run_build(
         height,
         keep_frames,
         progress: Some(progress),
+        voice_backend: None,
     };
 
-    match build_video(&m, config).await {
+    match build_video(&mut m, config).await {
         Ok(result) => {
             println!(
                 "Build complete: {} ({} frames, {:.1}s)",
@@ -229,6 +238,12 @@ fn format_build_error(err: &BuildError) -> String {
         }
         BuildError::Config(msg) => {
             format!("Error: {msg}")
+        }
+        BuildError::Tts { segment, source } => {
+            format!(
+                "Error: TTS synthesis failed for narration segment {segment}.\n\
+                 Details: {source}"
+            )
         }
     }
 }

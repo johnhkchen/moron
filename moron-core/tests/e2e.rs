@@ -356,7 +356,7 @@ fn e2e_demo_scene_timeline_properties() {
 #[test]
 fn e2e_empty_scene_produces_build_error() {
     // An empty scene (no timeline segments) should be rejected by build_video.
-    let m = M::new();
+    let mut m = M::new();
     assert_eq!(m.timeline().total_frames(), 0);
 
     let temp_dir = test_temp_dir("empty-scene");
@@ -367,7 +367,7 @@ fn e2e_empty_scene_produces_build_error() {
 
     // Run the async function in a sync test context.
     let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
-    let result = rt.block_on(build_video(&m, config));
+    let result = rt.block_on(build_video(&mut m, config));
 
     assert!(result.is_err(), "build_video should fail on empty scene");
     let err_msg = match result {
@@ -389,7 +389,7 @@ fn e2e_audio_assembly_from_demo_scene() {
     let mut m = M::new();
     DemoScene::build(&mut m);
 
-    let clip = assemble_audio_track(m.timeline(), moron_voice::DEFAULT_SAMPLE_RATE);
+    let clip = assemble_audio_track(m.timeline(), moron_voice::DEFAULT_SAMPLE_RATE, None);
 
     // Audio duration should match timeline duration.
     let tl_dur = m.timeline().total_duration();
@@ -483,7 +483,7 @@ fn e2e_full_pipeline() {
     assert!(video_size > 0, "Video-only .mp4 should be non-empty");
 
     // Step 5: Assemble audio track and write as WAV.
-    let audio_clip = assemble_audio_track(m.timeline(), moron_voice::DEFAULT_SAMPLE_RATE);
+    let audio_clip = assemble_audio_track(m.timeline(), moron_voice::DEFAULT_SAMPLE_RATE, None);
     let wav_bytes = audio_clip.to_wav_bytes();
     std::fs::write(&audio_path, &wav_bytes).expect("failed to write audio WAV");
 

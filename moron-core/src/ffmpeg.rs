@@ -267,20 +267,47 @@ pub fn mux_audio(
 
 /// Walk timeline segments and produce a single [`AudioClip`].
 ///
-/// Every segment is currently rendered as silence of its specified duration.
-/// When real TTS is available, `Narration` segments will produce synthesized
-/// speech and `Clip` segments will load pre-recorded audio. The concatenation
-/// and WAV encoding path remains the same.
+/// For each segment:
+/// - **Narration** segments use the corresponding clip from `narration_clips`
+///   (if provided), falling back to silence when `None`.
+/// - All other segment types produce silence of their specified duration.
+///
+/// The concatenation and WAV encoding path is the same regardless of whether
+/// real TTS audio is supplied.
 ///
 /// # Arguments
 ///
 /// * `timeline` -- the timeline whose segments define the audio track
 /// * `sample_rate` -- the sample rate for the output clip (e.g. 48000)
-pub fn assemble_audio_track(timeline: &Timeline, sample_rate: u32) -> AudioClip {
+/// * `narration_clips` -- optional pre-synthesized audio clips, one per
+///   narration segment in timeline order. When `None`, all narration segments
+///   are rendered as silence (backward-compatible behavior).
+pub fn assemble_audio_track(
+    timeline: &Timeline,
+    sample_rate: u32,
+    narration_clips: Option<&[AudioClip]>,
+) -> AudioClip {
+    let mut narration_idx: usize = 0;
+
     let clips: Vec<AudioClip> = timeline
         .segments()
         .iter()
-        .map(|seg| AudioClip::silence(seg.duration(), sample_rate))
+        .map(|seg| {
+            match seg {
+                crate::timeline::Segment::Narration { .. } => {
+                    if let Some(clips) = narration_clips
+                        && narration_idx < clips.len()
+                    {
+                        let clip = clips[narration_idx].clone();
+                        narration_idx += 1;
+                        return clip;
+                    }
+                    narration_idx += 1;
+                    AudioClip::silence(seg.duration(), sample_rate)
+                }
+                _ => AudioClip::silence(seg.duration(), sample_rate),
+            }
+        })
         .collect();
 
     AudioClip::concat(&clips, sample_rate, 1)
@@ -717,7 +744,7 @@ mod tests {
         use crate::timeline::Timeline;
 
         let tl = Timeline::default();
-        let clip = assemble_audio_track(&tl, 48000);
+        let clip = assemble_audio_track(&tl, 48000, None);
         assert_eq!(clip.data.len(), 0);
         assert!((clip.duration() - 0.0).abs() < f64::EPSILON);
         assert_eq!(clip.sample_rate, 48000);
@@ -734,7 +761,7 @@ mod tests {
             duration: 2.0,
         });
 
-        let clip = assemble_audio_track(&tl, 48000);
+        let clip = assemble_audio_track(&tl, 48000, None);
         assert!((clip.duration() - 2.0).abs() < 1e-10);
         assert_eq!(clip.data.len(), 96000); // 2.0 * 48000
     }
@@ -758,7 +785,7 @@ mod tests {
             duration: 2.0,
         });
 
-        let clip = assemble_audio_track(&tl, 48000);
+        let clip = assemble_audio_track(&tl, 48000, None);
 
         // Total duration should match timeline
         let expected_duration = 3.0 + 0.5 + 1.0 + 2.0;
@@ -774,10 +801,71 @@ mod tests {
         tl.add_segment(Segment::Silence { duration: 1.0 });
         tl.add_segment(Segment::Silence { duration: 0.5 });
 
-        let clip = assemble_audio_track(&tl, 48000);
+        let clip = assemble_audio_track(&tl, 48000, None);
 
         // 1.0s = 48000 samples, 0.5s = 24000 samples
         assert_eq!(clip.data.len(), 48000 + 24000);
+    }
+
+    #[test]
+    fn test_assemble_with_narration_clips() {
+        use crate::timeline::{Segment, Timeline};
+
+        let mut tl = Timeline::new(30);
+        tl.add_segment(Segment::Narration {
+            text: "Hello".into(),
+            duration: 1.0,
+        });
+        tl.add_segment(Segment::Silence { duration: 0.5 });
+        tl.add_segment(Segment::Narration {
+            text: "World".into(),
+            duration: 1.5,
+        });
+
+        // Create fake TTS clips at 48kHz
+        let clip1 = AudioClip {
+            data: vec![0.5; 48000],  // 1.0s at 48kHz
+            duration: 1.0,
+            sample_rate: 48000,
+            channels: 1,
+        };
+        let clip2 = AudioClip {
+            data: vec![0.7; 72000],  // 1.5s at 48kHz
+            duration: 1.5,
+            sample_rate: 48000,
+            channels: 1,
+        };
+
+        let narration_clips = vec![clip1, clip2];
+        let result = assemble_audio_track(&tl, 48000, Some(&narration_clips));
+
+        // Total: 1.0s (narration) + 0.5s (silence) + 1.5s (narration) = 3.0s
+        assert!((result.duration() - 3.0).abs() < 1e-10);
+        assert_eq!(result.data.len(), 48000 + 24000 + 72000);
+
+        // First 48000 samples should be 0.5 (from TTS clip 1)
+        assert!((result.data[0] - 0.5).abs() < f32::EPSILON);
+        // Silence section should be 0.0
+        assert!((result.data[48000] - 0.0).abs() < f32::EPSILON);
+        // Last section should be 0.7 (from TTS clip 2)
+        assert!((result.data[48000 + 24000] - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_assemble_narration_clips_none_fallback() {
+        use crate::timeline::{Segment, Timeline};
+
+        let mut tl = Timeline::new(30);
+        tl.add_segment(Segment::Narration {
+            text: "Hello".into(),
+            duration: 1.0,
+        });
+
+        // None means silence fallback
+        let clip = assemble_audio_track(&tl, 48000, None);
+        assert!((clip.duration() - 1.0).abs() < 1e-10);
+        // All samples should be zero (silence)
+        assert!(clip.data.iter().all(|&s| s == 0.0));
     }
 
     // -- build_mux_args tests ----------------------------------------------
