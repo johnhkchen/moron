@@ -7,6 +7,17 @@
 use moron_themes::Theme;
 use moron_voice::Voice;
 
+use crate::timeline::{Segment, Timeline};
+
+/// Default duration for `m.beat()` — a short rhythmic pause.
+pub const BEAT_DURATION: f64 = 0.3;
+
+/// Default duration for `m.breath()` — a slightly longer pause.
+pub const BREATH_DURATION: f64 = 0.8;
+
+/// Default words-per-minute for narration duration estimation.
+pub const DEFAULT_NARRATION_WPM: f64 = 150.0;
+
 // ---------------------------------------------------------------------------
 // Supporting types
 // ---------------------------------------------------------------------------
@@ -50,6 +61,8 @@ pub struct M {
     current_theme: Theme,
     /// Active voice/TTS configuration.
     current_voice: Voice,
+    /// The timeline recording all segments produced during scene building.
+    timeline: Timeline,
 }
 
 impl M {
@@ -59,6 +72,7 @@ impl M {
             next_element_id: 0,
             current_theme: Theme::default(),
             current_voice: Voice::kokoro(),
+            timeline: Timeline::default(),
         }
     }
 
@@ -72,11 +86,23 @@ impl M {
         &self.current_voice
     }
 
+    /// Get the recorded timeline.
+    pub fn timeline(&self) -> &Timeline {
+        &self.timeline
+    }
+
     // -- Content -----------------------------------------------------------
 
     /// Queue TTS narration for the given text.
-    pub fn narrate(&mut self, _text: &str) {
-        todo!()
+    ///
+    /// Duration is estimated from word count at [`DEFAULT_NARRATION_WPM`].
+    pub fn narrate(&mut self, text: &str) {
+        let words = text.split_whitespace().count().max(1) as f64;
+        let duration = words * 60.0 / DEFAULT_NARRATION_WPM;
+        self.timeline.add_segment(Segment::Narration {
+            text: text.to_string(),
+            duration,
+        });
     }
 
     /// Display text on screen in a context-aware manner.
@@ -108,26 +134,34 @@ impl M {
 
     // -- Pacing ------------------------------------------------------------
 
-    /// Insert a short rhythmic pause (roughly a "beat" in timing).
+    /// Insert a short rhythmic pause ([`BEAT_DURATION`] seconds).
     pub fn beat(&mut self) {
-        todo!()
+        self.timeline
+            .add_segment(Segment::Silence { duration: BEAT_DURATION });
     }
 
-    /// Insert a slightly longer breathing pause.
+    /// Insert a slightly longer breathing pause ([`BREATH_DURATION`] seconds).
     pub fn breath(&mut self) {
-        todo!()
+        self.timeline
+            .add_segment(Segment::Silence { duration: BREATH_DURATION });
     }
 
     /// Wait for an explicit duration in seconds.
-    pub fn wait(&mut self, _duration: f64) {
-        todo!()
+    pub fn wait(&mut self, duration: f64) {
+        self.timeline
+            .add_segment(Segment::Silence { duration });
     }
 
     // -- Techniques --------------------------------------------------------
 
     /// Execute a composable animation technique.
-    pub fn play(&mut self, _technique: impl moron_techniques::Technique) {
-        todo!()
+    ///
+    /// Records an [`Animation`](Segment::Animation) segment on the timeline.
+    pub fn play(&mut self, technique: impl moron_techniques::Technique) {
+        self.timeline.add_segment(Segment::Animation {
+            name: technique.name().to_string(),
+            duration: technique.duration(),
+        });
     }
 
     // -- Configuration -----------------------------------------------------
@@ -241,17 +275,63 @@ mod tests {
     }
 
     #[test]
-    fn play_accepts_real_techniques() {
-        // Compile-time check: M.play() accepts concrete technique types.
-        fn _assert_compiles(m: &mut M) {
-            use moron_techniques::{FadeIn, FadeUp, Slide, Scale, Stagger, CountUp, TechniqueExt, Ease};
-            m.play(FadeIn::default());
-            m.play(FadeUp::default());
-            m.play(Slide::default());
-            m.play(Scale::default());
-            m.play(CountUp::default());
-            m.play(Stagger::new(FadeUp::default()));
-            m.play(FadeUp::default().with_ease(Ease::OutBack));
-        }
+    fn play_records_animation_segments() {
+        use moron_techniques::{FadeIn, FadeUp, Technique};
+        let mut m = M::new();
+        m.play(FadeIn::default());
+        m.play(FadeUp::default());
+
+        assert_eq!(m.timeline().segments().len(), 2);
+        let total = m.timeline().total_duration();
+        let expected = FadeIn::default().duration() + FadeUp::default().duration();
+        assert!((total - expected).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn beat_adds_silence() {
+        let mut m = M::new();
+        m.beat();
+        assert_eq!(m.timeline().segments().len(), 1);
+        assert!((m.timeline().total_duration() - BEAT_DURATION).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn breath_adds_silence() {
+        let mut m = M::new();
+        m.breath();
+        assert_eq!(m.timeline().segments().len(), 1);
+        assert!((m.timeline().total_duration() - BREATH_DURATION).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn wait_adds_custom_silence() {
+        let mut m = M::new();
+        m.wait(2.5);
+        assert_eq!(m.timeline().segments().len(), 1);
+        assert!((m.timeline().total_duration() - 2.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn narrate_records_narration() {
+        let mut m = M::new();
+        m.narrate("Hello world");
+        assert_eq!(m.timeline().segments().len(), 1);
+        // "Hello world" = 2 words, 2 * 60 / 150 = 0.8s
+        assert!((m.timeline().total_duration() - 0.8).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn timeline_tracks_cumulative_duration() {
+        use moron_techniques::FadeIn;
+        let mut m = M::new();
+        m.narrate("Hello world");             // 0.8s
+        m.beat();                              // 0.3s
+        m.play(FadeIn { duration: 0.5 });     // 0.5s
+        m.breath();                            // 0.8s
+        m.wait(1.0);                           // 1.0s
+
+        assert_eq!(m.timeline().segments().len(), 5);
+        let expected = 0.8 + 0.3 + 0.5 + 0.8 + 1.0;
+        assert!((m.timeline().total_duration() - expected).abs() < f64::EPSILON);
     }
 }
