@@ -1,6 +1,6 @@
 //! Reveal techniques: TypeWriter, SweepIn, PixelDissolve, MaskWipe, etc.
 
-use crate::technique::Technique;
+use crate::technique::{Technique, TechniqueOutput};
 
 /// Fades an element in from transparent to fully opaque.
 #[derive(Debug, Clone)]
@@ -21,6 +21,13 @@ impl Technique for FadeIn {
 
     fn duration(&self) -> f64 {
         self.duration
+    }
+
+    fn apply(&self, progress: f64) -> TechniqueOutput {
+        TechniqueOutput {
+            opacity: progress.clamp(0.0, 1.0),
+            ..TechniqueOutput::default()
+        }
     }
 }
 
@@ -47,5 +54,14 @@ impl Technique for FadeUp {
 
     fn duration(&self) -> f64 {
         self.duration
+    }
+
+    fn apply(&self, progress: f64) -> TechniqueOutput {
+        let p = progress.clamp(0.0, 1.0);
+        TechniqueOutput {
+            opacity: p,
+            translate_y: self.distance * (1.0 - p),
+            ..TechniqueOutput::default()
+        }
     }
 }

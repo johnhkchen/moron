@@ -1,6 +1,6 @@
 //! Motion techniques: SlideIn, ArcPath, Orbit, SpringPop, Parallax, etc.
 
-use crate::technique::Technique;
+use crate::technique::{Technique, TechniqueOutput};
 
 /// Slides an element from one position to another.
 #[derive(Debug, Clone)]
@@ -27,6 +27,15 @@ impl Technique for Slide {
 
     fn duration(&self) -> f64 {
         self.duration
+    }
+
+    fn apply(&self, progress: f64) -> TechniqueOutput {
+        let p = progress.clamp(0.0, 1.0);
+        TechniqueOutput {
+            translate_x: self.offset_x * (1.0 - p),
+            translate_y: self.offset_y * (1.0 - p),
+            ..TechniqueOutput::default()
+        }
     }
 }
 
@@ -55,5 +64,13 @@ impl Technique for Scale {
 
     fn duration(&self) -> f64 {
         self.duration
+    }
+
+    fn apply(&self, progress: f64) -> TechniqueOutput {
+        let p = progress.clamp(0.0, 1.0);
+        TechniqueOutput {
+            scale: self.from + (self.to - self.from) * p,
+            ..TechniqueOutput::default()
+        }
     }
 }
